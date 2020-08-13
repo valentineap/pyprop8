@@ -1,6 +1,8 @@
 import numpy as np
 import datetime
 import copy
+import scipy.integrate as integ
+import scipy.special as spec
 # class Settings:
 #     fmin = 0.0
 #     fmax = 1.0
@@ -204,8 +206,15 @@ class Stack:
         self.iReceiver = self._insertLayer(z)
     def b(self,omega,k,MT,F):
         return self.H(omega,k) @ sourceVector(MT,F,k,self.layers[self.iSource].sigma,self.layers[self.iSource].mu)
-
-
+    def getIntegrand(self,omega,MT,F,r,phi):
+        return lambda k: k*(self.b(omega,k,MT,F) @ \
+                        (np.exp(1j*phi*np.arange(-2,3))*spec.jv(np.arange(-2,3),k*r)))
+    def K(self,omega,MT,F,r,phi):
+        eimp = np.exp(1j*phi*np.arange(-2,3))
+        return integ.quad(lambda k:np.real(k*(self.b(omega,k,MT,F) @ (eimp*spec.jv(np.arange(-2,3),k*r))) [0]),0,np.inf)[0]
+    def iK(self,omega,MT,F,r,phi):
+        eimp = np.exp(1j*phi*np.arange(-2,3))
+        return integ.quad(lambda k:np.imag(k*(self.b(omega,k,MT,F) @ (eimp*spec.jv(np.arange(-2,3),k*r))) [0]),0,np.inf)[0]
 
 def sourceVector(MT,F,k,sigma,mu):
     s = np.zeros([4,5],dtype='complex128')
@@ -542,3 +551,5 @@ M = np.array([[2.,0.3,0.],
               [0.3,-0.8,0.1],
               [0.,0.1,1.2]])
 F = np.zeros([3])
+nfft = 128
+ww = 2*np.pi*np.fft.fftfreq(nfft)
