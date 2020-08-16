@@ -22,27 +22,27 @@ import scipy.special as spec
 #     rake = 0.
 #     eta = 0.
 #     xtr = 0.
-#     def makeMomentTensor(self):
-#         strike_r = np.deg2rad(self.strike)
-#         dip_r = np.deg2rad(self.dip)
-#         rake_r = np.deg2rad(self.rake)
-#         sv = np.array([0.,-np.cos(strike_r),np.sin(strike_r)])
-#         d = np.array([-np.sin(dip_r),np.cos(dip_r)*np.sin(strike_r),np.cos(dip_r)*np.cos(strike_r)])
-#         n = np.array([np.cos(dip_r),np.sin(dip_r)*np.sin(strike_r),np.sin(dip_r)*np.cos(strike_r)])
-#         e = sv*np.cos(rake_r) - d*np.sin(rake_r)
-#         b = np.cross(e,n)
-#         t = (e+n)/np.sqrt(2)
-#         p = (e-n)/np.sqrt(2)
-#         ev = self.M0 * np.array([-1-0.5*self.eta+0.5*self.xtr,self.eta,1-0.5*self.eta+0.5*self.xtr])
-#         fmom = np.zeros(6)
-#         fmom[:3] = ev[0]*p**2 + ev[1]*b**2+ev[2]*t**2
-#         fmom[3] = ev[0]*p[0]*p[1] + ev[1]*b[0]*b[1]+ev[2]*t[0]*t[1]
-#         fmom[4] = ev[0]*p[0]*p[2] + ev[1]*b[0]*b[2]+ev[2]*t[0]*t[2]
-#         fmom[5] = ev[0]*p[1]*p[2] + ev[1]*b[1]*b[2]+ev[2]*t[1]*t[2]
-#         self.M = np.array([[fmom[0],fmom[3],fmom[4]],
-#                            [fmom[3],fmom[1],fmom[5]],
-#                            [fmom[4],fmom[5],fmom[2]]])
-#         return self.M
+def makeMomentTensor(strike,dip,rake,M0,eta,xtr):
+    strike_r = np.deg2rad(strike)
+    dip_r = np.deg2rad(dip)
+    rake_r = np.deg2rad(rake)
+    sv = np.array([0.,-np.cos(strike_r),np.sin(strike_r)])
+    d = np.array([-np.sin(dip_r),np.cos(dip_r)*np.sin(strike_r),np.cos(dip_r)*np.cos(strike_r)])
+    n = np.array([np.cos(dip_r),np.sin(dip_r)*np.sin(strike_r),np.sin(dip_r)*np.cos(strike_r)])
+    e = sv*np.cos(rake_r) - d*np.sin(rake_r)
+    b = np.cross(e,n)
+    t = (e+n)/np.sqrt(2)
+    p = (e-n)/np.sqrt(2)
+    ev = M0 * np.array([-1-0.5*eta+0.5*xtr,eta,1-0.5*eta+0.5*xtr])
+    fmom = np.zeros(6)
+    fmom[:3] = ev[0]*p**2 + ev[1]*b**2+ev[2]*t**2
+    fmom[3] = ev[0]*p[0]*p[1] + ev[1]*b[0]*b[1]+ev[2]*t[0]*t[1]
+    fmom[4] = ev[0]*p[0]*p[2] + ev[1]*b[0]*b[2]+ev[2]*t[0]*t[2]
+    fmom[5] = ev[0]*p[1]*p[2] + ev[1]*b[1]*b[2]+ev[2]*t[1]*t[2]
+    M = np.array([[fmom[0],fmom[3],fmom[4]],
+                       [fmom[3],fmom[1],fmom[5]],
+                       [fmom[4],fmom[5],fmom[2]]])
+    return M
 #
 # class Output:
 #     ifradii = 1
@@ -103,8 +103,8 @@ class Layer:
         self.mpup=None
         self.mpdown = None
     def makePropagators(self,omega,k,eps_om=1e-3):
-        self.pup,self.mpup = propagator2(-self.dz,omega,k,self.sigma,self.mu,self.rho)
-        self.pdown,self.mpdown = propagator2(self.dz,omega,k,self.sigma,self.mu,self.rho)
+        self.pup,self.mpup = propagator2(self.dz,omega,k,self.sigma,self.mu,self.rho)
+        self.pdown,self.mpdown = propagator2(-self.dz,omega,k,self.sigma,self.mu,self.rho)
     @property
     def materialProperties(self):
         return self.sigma, self.mu, self.rho
@@ -161,12 +161,15 @@ class Stack:
         return v
     @property
     def propagatedSurfaceCondition(self):
-        if self.layers[0].mu == 0.:
-            v = oceanFloorBoundary(self.layers[0].dz,self.omega,self.k,self.layers[0].sigma, self.layers[0].rho)
+        if self.nlayers==0:
+            v = freeSurfaceBoundary()
         else:
-            v = self.layers[0].mpdown(freeSurfaceBoundary())
-        if self.nlayers>1:
-            v = self[1:].propagateDown(v)
+            if self.layers[0].mu == 0.:
+                v = oceanFloorBoundary(self.layers[0].dz,self.omega,self.k,self.layers[0].sigma, self.layers[0].rho)
+            else:
+                v = self.layers[0].mpdown(freeSurfaceBoundary())
+            if self.nlayers>1:
+                v = self[1:].propagateDown(v)
         return v
     @property
     def propagatedBasalCondition(self):
@@ -178,7 +181,7 @@ class Stack:
         return v
     def H(self,omega,k):
         if not self.iReceiver < self.iSource: raise ValueError("Source must lie below receiver")
-        if k==0: return np.zeros([4,4],dtype='complex128')
+        if k==0: return ScaledMatrix(np.zeros([4,4],dtype='complex128'),0,None)
         self.setFrequency(omega,k)
         bcSurface_rec = self[:self.iReceiver].propagatedSurfaceCondition
         bcBase_src = self[self.iSource:].propagatedBasalCondition
@@ -186,7 +189,7 @@ class Stack:
         Delta = makeDelta(bcSurface_rec,bcBase_rec)
         P_src_rec = self[self.iReceiver:self.iSource].propagateUp
         H = (makeN(bcSurface_rec) @ P_src_rec(makeN(bcBase_src)))/Delta
-        return H.unscale()
+        return H#.unscale()
     def _insertLayer(self,z):
         stackz = 0.
         for ilayer,layer in enumerate(self.layers):
@@ -205,7 +208,7 @@ class Stack:
         if z<0: raise ValueError("Receiver must be at or below surface")
         self.iReceiver = self._insertLayer(z)
     def b(self,omega,k,MT,F):
-        return self.H(omega,k) @ sourceVector(MT,F,k,self.layers[self.iSource].sigma,self.layers[self.iSource].mu)
+        return (self.H(omega,k) @ sourceVector(MT,F,k,self.layers[self.iSource].sigma,self.layers[self.iSource].mu)).unscale()
     def getIntegrand(self,omega,MT,F,r,phi):
         return lambda k: k*(self.b(omega,k,MT,F) @ \
                         (np.exp(1j*phi*np.arange(-2,3))*spec.jv(np.arange(-2,3),k*r)))
@@ -221,13 +224,13 @@ def sourceVector(MT,F,k,sigma,mu):
 
     s[0,2] = MT[2,2]/sigma
     s[2,2] = -F[2]
-    s[3,2] = 0.5*k*(MT[0,0]+MT[2,2]) - k*(sigma-2*mu)*MT[2,2]/sigma
+    s[3,2] = 0.5*k*(MT[0,0]+MT[1,1]) - k*(sigma-2*mu)*MT[2,2]/sigma
     for sgn in [-1,1]:
         s[1,2+sgn] = 0.5*(sgn*MT[0,2] - 1j*MT[1,2])/mu
         s[2,2+sgn] = sgn*0.5*k*(MT[0,2]-MT[2,0])+0.5*1j*k*(MT[2,1]-MT[1,2])
         s[3,2+sgn] = 0.5*(-sgn*F[0]+1j*F[1])
-        s[3,2+2*sgn] = 0.25*k*(MT[1,1]-MT[0,0])+sgn*0.25*1j*k*(MT[0,1]-MT[1,0])
-    return s
+        s[3,2+2*sgn] = 0.25*k*(MT[1,1]-MT[0,0])+sgn*0.25*1j*k*(MT[0,1]+MT[1,0])
+    return ScaledMatrix(s,0,True)
 
 
 def makeN(scm):
@@ -357,15 +360,17 @@ def propagator2(h,omega,k,sigma,mu,rho):
     iZ[3,1] = -rtrho
     iZ = ScaledMatrix(iZ,0,True)
 
-    v1 = ScaledMatrix(np.array([1/zsig,k,(k/omega)**2,omega**2,k,zmu]),0,True)
+    #v1 = ScaledMatrix(np.array([1/zsig,k,(k/omega)**2,omega**2,k,zmu]),0,True)
+    v1 = ScaledMatrix(np.array([1/zsig,k/(zmu*zsig),omega**2/(zmu*zsig),(k/omega)**2/(zmu*zsig),k/(zmu*zsig),1/zmu]),0,True)
+    v2 = ScaledMatrix(np.array([zsig,k,(k/omega)**2,omega**2,k,zmu]),0,True)
+    # Split matrix into term containing cosh/sinh products (which need scaling by exp(scale)) and the rest.
     M1 = ScaledMatrix(np.array([[Pc,-X2,X2,-X2+xiprod*X1,X2,-Ps],
-                  [-X1,Ps+xiprod,-Ps,Ps-Pc*xiprod,-Ps,X2],
+                  [-X1,Ps,-Ps,Ps-Pc*xiprod,-Ps,X2],
                   [-X1+xiprod*X2,Ps-Pc*xiprod,-Ps+Pc*xiprod,-2*Pc*xiprod+Ps*(1+xiprod**2),-Ps+Pc*xiprod,X2-X1*xiprod],
                   [X1,-Ps,Ps,-Ps+Pc*xiprod,Ps,-X2],
-                  [X1,-Ps,Ps,-Ps+Pc*xiprod,Ps+xiprod,-X2],
+                  [X1,-Ps,Ps,-Ps+Pc*xiprod,Ps,-X2],
                   [-Ps,X1,-X1,X1-X2*xiprod,-X1,Pc]]),scalemu+scalesig,True)
-    M2 = ScaledMatrix(np.array([[0,0,0,0,0,0],[0,0,0,xiprod,0,0],[0,xiprod,0,2*xiprod,-xiprod,0],[0,0,0,0,0,0],[0,0,0,-xiprod,0,0],[0,0,0,0,0,0]]),0,True)
-    v2 = ScaledMatrix(np.array([zsig,k,(k/omega)**2,omega**2,k,zmu]),0,True)
+    M2 = ScaledMatrix(np.array([[0,0,0,0,0,0],[0,xiprod,0,xiprod,0,0],[0,xiprod,0,2*xiprod,-xiprod,0],[0,0,0,0,0,0],[0,0,0,-xiprod,xiprod,0],[0,0,0,0,0,0]]),0,True)
     mZ = np.zeros([6,6])
     mZi = np.zeros([6,6])
     mZ[0,2] = -1/rho
@@ -374,6 +379,7 @@ def propagator2(h,omega,k,sigma,mu,rho):
     mZ[2,0] = 1
     mZ[3,5] = 1
     mZ[4,2] = 2*k*mu/rho
+    mZ[4,4] = 1
     mZ[5,1] = -2*k*mu
     mZ[5,2] = (2*k*mu)**2 / rho
     mZ[5,3] = -rho
@@ -391,6 +397,8 @@ def propagator2(h,omega,k,sigma,mu,rho):
     mZi[4,4] = 1
     mZi[5,3] = 1
     mZi = ScaledMatrix(mZi,0,True)
+    # assert(np.allclose((mZ @ mZi).unscale(),np.eye(6)))
+    # assert(np.allclose((Z @ iZ).unscale(),np.eye(4)))
     return lambda m: (Z @ exphap_c @ iZ @ m)+(Z @ exphap_s @ iZ @ m), lambda m: mZ @ (v2*(M1 @ (v1*(mZi @ m))) + v2*(M2 @ (v1*(mZi @ m))))
 
 def makePropagator(h,omega,k,sigma,mu,rho,eps_om = 1e-3,eps_k = 1e-5,dtype = 'complex128'):
@@ -538,18 +546,32 @@ def underlyingHalfspaceBoundary(omega,k,sigma,mu,rho,eps_om=1e-3,eps_k=1e-5):
         else:
             m = ScaledMatrix(np.array([1,0,0,0,0,0]),0)
     return m
-
+def loado7(file,irec,icomp,ifreq,nk=1200,ncomp=3,nrecs=20,nfreq=257):
+    fp = open(file,'r')
+    for i in range(7):
+        fp.readline()
+        out = np.zeros([nk,5],dtype='complex')
+        for ifr in range(ifreq+1):
+            for ik in range(nk):
+                for ir in range(nrecs):
+                    for i in range(ncomp):
+                        line = fp.readline()
+                        if ir==irec and i==icomp and ifreq==ifr:
+                            sp = line.split()
+                            k=0
+                            for j in range(5):
+                                out[ik,j] = float(sp[k])+1j*float(sp[k+1])
+                                k+=2
+    return out
 
 S = Stack([Layer(3.,1.8,0.,1.02),
            Layer(2.,4.5,2.4,2.57),
            Layer(5.,5.8,3.3,2.64),
            Layer(20.,6.5,3.65,2.85),
            Layer(np.inf,8.,4.56,3.34)])
-S.insertSource(30.)
-S.insertReceiver(3.2)
-M = np.array([[2.,0.3,0.],
-              [0.3,-0.8,0.1],
-              [0.,0.1,1.2]])
+S.insertSource(20.)
+S.insertReceiver(3.)
+M = makeMomentTensor(340,90,0,2.4E8,0,0)
 F = np.zeros([3])
 nfft = 128
 ww = 2*np.pi*np.fft.fftfreq(nfft)
