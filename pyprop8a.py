@@ -55,35 +55,55 @@ def makeMomentTensor(strike,dip,rake,M0,eta,xtr):
 
 
 class ScaledMatrix:
-    def __init__(self, M, scale,rescale = False):
+    def __init__(self, M, scale,rescale = False,isstack=False,copy=True):
         self.M = M
         self.scale = scale
+        self.isstack = isstack
+        if self.isstack:
+            shape = self.M.shape
+            if len(shape)<2: raise ValueError("ScaledMatrix expected stack")
+            if len(shape)>3: raise NotImplementedError("ScaledMatrix does not work for higher-dimensional objects")
+            self.nstack = shape[0]
+            self.Mdims = (1,2)[:len(shape)-1]
+            self.oneshape = (1,1)[:len(shape)-1]
+            try:
+                if self.scale.shape[0]!=self.nstack: raise ValueError("Dimension mismatch between M and scale")
+            except AttributeError:
+                # Assume scale is a scalar & promote
+                self.scale = self.scale*np.ones(self.nstack)
         if rescale:
-            sc = abs(self.M).max()
-            if sc == 0.:sc =1
-            self.M/=sc
-            self.scale+=np.log(sc)
+            if self.isstack:
+                sc = abs(self.M).max(axis=self.Mdims)
+                sc = np.where(sc==0,1,sc)
+                self.M/=(sc.reshape(self.nstack,*self.oneshape))
+                self.scale+=np.log(sc)
+            else:
+                sc = abs(self.M).max()
+                if sc == 0.:sc =1
+                self.M/=sc
+                self.scale+=np.log(sc)
     def __matmul__(self,other):
         M = self.M @ other.M
-        scale = abs(M).max()
-        if scale==0:scale=1
-        return ScaledMatrix(M/scale,self.scale + other.scale + np.log(scale))
+        return ScaledMatrix(M,self.scale + other.scale,rescale=True,isstack=self.isstack or other.isstack)
     def __mul__(self,other):
         M = self.M*other.M
-        scale = max(abs(M))
-        if scale==0:scale=1
-        return ScaledMatrix(M/scale,self.scale+other.scale+np.log(scale))
+        return ScaledMatrix(M,self.scale+other.scale,rescale=True,isstack=self.isstack or other.isstack)
     def __add__(self,other):
-        scm = max(self.scale,other.scale)
-        M = np.exp(self.scale-scm)*self.M + np.exp(other.scale-scm)*other.M
-        mabs = abs(M).max()
-        return ScaledMatrix(M/mabs,scm+np.log(mabs))
+        scm = np.array([self.scale,other.scale]).max(0)
+        M = self.unscale(-scm) + other.unscale(-scm)
+        return ScaledMatrix(M,scm,rescale=True,isstack=self.isstack or other.isstack)
     def __truediv__(self,other):
         return ScaledMatrix(self.M/other.M,self.scale-other.scale)
-    def unscale(self):
-        return np.exp(self.scale)*self.M
+    def unscale(self,scaleshift=0):
+        if self.isstack:
+            return np.exp(self.scale+scaleshift).reshape(self.nstack,*self.oneshape)*self.M
+        else:
+            return np.exp(self.scale+scaleshift)*self.M
     def __repr__(self):
-        return 'exp(%f) x %s'%(self.scale,self.M.__repr__())
+        if self.isstack:
+            return '\n'.join(['exp(%f) x %s'%(self.scale[i],self.M[i,:].__repr__()) for i in range(self.nstack)])
+        else:
+            return 'exp(%f) x %s'%(self.scale,self.M.__repr__())
     @property
     def shape(self):
         return self.M.shape
@@ -302,15 +322,18 @@ def minors(m):
     return minor
 
 def exphyp(x,scale = None):
-    sc = abs(x)
-    sgn = np.sign(x)
-    t = np.exp(-2*sgn*x)
-    fac = 1.
+    a = np.real(x)
+    b = np.imag(x)
+    sgn = np.sign(a)
+    t = np.exp(-2*sgn*a)
+
+    #fac = 1.
     if scale is not None:
-        fac = np.exp(sc-scale)
-        #print("...>",fac)
-        sc = scale
-    return 0.5*fac*(1+t),sgn*0.5*fac*(1-t),sc
+        raise NotImplementedError
+        # fac = np.exp(sc-scale)
+        # #print("...>",fac)
+        # sc = scale
+    return 0.5*np.cos(b)*(1+t)+0.5j*np.sin(b)*sgn*(1-t),0.5*np.cos(b)*sgn*(1-t)+0.5j*np.sin(b)*(1+t),sgn*a#0.5*fac*(1+t),sgn*0.5*fac*(1-t),sc
     #
     # if sc<3:
     #     c = np.exp(-sc)*np.cosh(x)
@@ -342,8 +365,8 @@ def propagator2(h,omega,k,sigma,mu,rho):
                                       [0,0,0,0],
                                       [0,smu*zmu/omega**2,-k*cmu/omega**2,cmu]]),scalemu,True)
 
-    Z =  np.zeros([4,4])
-    iZ = np.zeros([4,4])
+    Z =  np.zeros([4,4],dtype='float64')
+    iZ = np.zeros([4,4],dtype='float64')
     rtrho = np.sqrt(rho)
     Z[0,0] = 1/rtrho
     Z[1,3] = -1/rtrho
@@ -361,18 +384,18 @@ def propagator2(h,omega,k,sigma,mu,rho):
     iZ = ScaledMatrix(iZ,0,True)
 
     #v1 = ScaledMatrix(np.array([1/zsig,k,(k/omega)**2,omega**2,k,zmu]),0,True)
-    v1 = ScaledMatrix(np.array([1/zsig,k/(zmu*zsig),omega**2/(zmu*zsig),(k/omega)**2/(zmu*zsig),k/(zmu*zsig),1/zmu]),0,True)
-    v2 = ScaledMatrix(np.array([zsig,k,(k/omega)**2,omega**2,k,zmu]),0,True)
+    v1 = ScaledMatrix(np.array([1/zsig,k/(zmu*zsig),omega**2/(zmu*zsig),(k/omega)**2/(zmu*zsig),k/(zmu*zsig),1/zmu],dtype='complex128'),0,True)
+    v2 = ScaledMatrix(np.array([zsig,k,(k/omega)**2,omega**2,k,zmu],dtype='complex128'),0,True)
     # Split matrix into term containing cosh/sinh products (which need scaling by exp(scale)) and the rest.
     M1 = ScaledMatrix(np.array([[Pc,-X2,X2,-X2+xiprod*X1,X2,-Ps],
                   [-X1,Ps,-Ps,Ps-Pc*xiprod,-Ps,X2],
                   [-X1+xiprod*X2,Ps-Pc*xiprod,-Ps+Pc*xiprod,-2*Pc*xiprod+Ps*(1+xiprod**2),-Ps+Pc*xiprod,X2-X1*xiprod],
                   [X1,-Ps,Ps,-Ps+Pc*xiprod,Ps,-X2],
                   [X1,-Ps,Ps,-Ps+Pc*xiprod,Ps,-X2],
-                  [-Ps,X1,-X1,X1-X2*xiprod,-X1,Pc]]),scalemu+scalesig,True)
-    M2 = ScaledMatrix(np.array([[0,0,0,0,0,0],[0,xiprod,0,xiprod,0,0],[0,xiprod,0,2*xiprod,-xiprod,0],[0,0,0,0,0,0],[0,0,0,-xiprod,xiprod,0],[0,0,0,0,0,0]]),0,True)
-    mZ = np.zeros([6,6])
-    mZi = np.zeros([6,6])
+                  [-Ps,X1,-X1,X1-X2*xiprod,-X1,Pc]],dtype='complex128'),scalemu+scalesig,True)
+    M2 = ScaledMatrix(np.array([[0,0,0,0,0,0],[0,xiprod,0,xiprod,0,0],[0,xiprod,0,2*xiprod,-xiprod,0],[0,0,0,0,0,0],[0,0,0,-xiprod,xiprod,0],[0,0,0,0,0,0]],dtype='complex128'),0,True)
+    mZ = np.zeros([6,6],dtype='float64')
+    mZi = np.zeros([6,6],dtype='float64')
     mZ[0,2] = -1/rho
     mZ[1,1] = 1
     mZ[1,2] = -2*k*mu/rho
@@ -513,8 +536,11 @@ def makePropagator(h,omega,k,sigma,mu,rho,eps_om = 1e-3,eps_k = 1e-5,dtype = 'co
 def freeSurfaceBoundary():
     return ScaledMatrix(np.array([1,0,0,0,0,0]),0)
 def oceanFloorBoundary(depth,omega,k,sigma,rho,eps_om=1e-3,eps_k=1e-5):
+    #print("Using ocean floor boundary")
     if k>eps_k:
         zsig = np.lib.scimath.sqrt(k**2 - rho*omega**2/sigma)
+        #print(k,omega**2,rho,sigma)
+        #print(zsig,depth)
         t = np.exp(-2*depth*zsig)
         m = ScaledMatrix(np.array([1+t,0,0,-rho*omega**2*(1-t)/zsig,0,0]),0)
     else:
@@ -550,19 +576,26 @@ def loado7(file,irec,icomp,ifreq,nk=1200,ncomp=3,nrecs=20,nfreq=257):
     fp = open(file,'r')
     for i in range(7):
         fp.readline()
-        out = np.zeros([nk,5],dtype='complex')
-        for ifr in range(ifreq+1):
-            for ik in range(nk):
-                for ir in range(nrecs):
-                    for i in range(ncomp):
-                        line = fp.readline()
-                        if ir==irec and i==icomp and ifreq==ifr:
-                            sp = line.split()
-                            k=0
-                            for j in range(5):
-                                out[ik,j] = float(sp[k])+1j*float(sp[k+1])
-                                k+=2
+    out = np.zeros([nk,5],dtype='complex')
+    for ifr in range(ifreq+1):
+        for ik in range(nk):
+            for ir in range(nrecs):
+                for i in range(ncomp):
+                    line = fp.readline()
+                    if ir==irec and i==icomp and ifreq==ifr:
+                        sp = line.split()
+                        k=0
+                        for j in range(5):
+                            out[ik,j] = float(sp[k])+1j*float(sp[k+1])
+                            k+=2
     return out
+
+def reorderMT(M,order=[1,2,0]):
+    M2 = np.zeros_like(M)
+    for io,i in enumerate(order):
+        for jo,j in enumerate(order):
+            M2[io,jo] = M[i,j]
+    return M2
 
 S = Stack([Layer(3.,1.8,0.,1.02),
            Layer(2.,4.5,2.4,2.57),
