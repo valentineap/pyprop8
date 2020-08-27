@@ -253,6 +253,8 @@ class Layer:
         self.omega = omega
         self.k = k
     def clearPropagators(self):
+        self.P2up = None
+        self.P2down = None
         self.Z4 = None
         self.iZ4 = None
         self.Z6 = None
@@ -261,6 +263,9 @@ class Layer:
         self.M4down = None
         self.M6up = None
         self.M6down = None
+    def make2DPropagators(self):
+        nk = self.k.shape[0]
+        self.P2up,self.P2down = make2DPropagators(self.omega,self.k,self.dz,*self.materialProperties)
     def make4DPropagators(self):
         nk = self.k.shape[0]
         self.Z4 = ScaledMatrixStack(nStack=nk,N=4,M=4,dtypeData='complex128',dtypeScale='float64')
@@ -283,8 +288,11 @@ class Layer:
             self.Z6[kp],self.iZ6[kp],self.M6up[kp],self.M6down[kp] = make6DPropagatorsZeroFreq(self.k[kp],self.dz,*self.materialProperties,Z = self.Z6[kp],iZ=self.iZ6[kp],Mup=self.M6up[kp],Mdown=self.M6down[kp])
         else:
             self.Z6[kp],self.iZ6[kp],self.M6up[kp],self.M6down[kp] = make6DPropagators(self.omega,self.k[kp],self.dz,*self.materialProperties,Z = self.Z6[kp],iZ=self.iZ6[kp],Mup=self.M6up[kp],Mdown=self.M6down[kp])
-    def propup(self,m,minor=False):
-        if minor:
+    def propup(self,m,minor=False,sh = False):
+        if sh:
+            if self.P2up is None: self.make2DPropagators()
+            return self.P2up.matmul(m,out=m)
+        elif minor:
             if self.Z6 is None: self.make6DPropagators()
             #return self.Z6@self.M6up@self.iZ6@m
             return self.Z6.matmul(self.M6up.matmul(self.iZ6.matmul(m,out=m),out=m),out=m)
@@ -292,23 +300,24 @@ class Layer:
             if self.Z4 is None:self.make4DPropagators()
             #return self.Z4 @ self.M4up @ self.iZ4 @ m
             return self.Z4.matmul(self.M4up.matmul(self.iZ4.matmul(m,out=m),out=m),out=m)
-    def propdown(self,m,minor=False):
-        if minor:
+    def propdown(self,m,minor=False,sh=False):
+        if sh:
+            if self.P2down is None:self.make2DPropagators()
+            return self.P2down.matmul(m,out=m)
+        elif minor:
             if self.Z6 is None: self.make6DPropagators()
             #return self.Z6 @ self.M6down@self.iZ6@m
             return self.Z6.matmul(self.M6down.matmul(self.iZ6.matmul(m,out=m),out=m),out=m)
         else:
             if self.Z4 is None: self.make4DPropagators()
             return self.Z4 @ self.M4down@self.iZ4@m
-
-
     @property
     def materialProperties(self):
         return self.sigma, self.mu, self.rho
     def __repr__(self):
         return "Layer. Thickness: %f\n|             vp: %f\n|             vs: %f\n`----------- rho: %f"%(self.dz,self.vp,self.vs,self.rho)
 class Stack:
-    def __init__(self,layerlist = None,omega=None,k=None,copylist=True):
+    def __init__(self,layerlist = None,omega=None,kk=None,copylist=True):
         if layerlist is None:
             self.layers = []
         else:
@@ -317,38 +326,36 @@ class Stack:
             else:
                 self.layers = layerlist
         self.omega = omega
-        self.k = k
+        self.kk = kk
         self.iSource = None
         self.iReceiver = None
     def __getitem__(self,key):
         if type(key) is slice:
-            return Stack(self.layers[key],self.omega,self.k,copylist=False)
+            return Stack(self.layers[key],self.omega,self.kk,copylist=False)
         else:
             return self.layers[key]
     def __setitem__(self,key,value):
         self.layers[key]=value
     def append(self,value):
         self.layers.append(value)
-    def setFrequency(self,omega,k):
+    def setFrequency(self,omega):
         for l in self.layers:
-            l.setFrequency(omega,k)
+            l.setFrequency(omega,self.kk)
         self.omega = omega
-        self.k = k
     def clearPropagators(self):
         self.omega= None
-        self.k = None
         for l in self.layers:
             l.clearPropagators()
     @property
     def nlayers(self):
         return len(self.layers)
-    def propagateDown(self,v,minor):
+    def propagateDown(self,v,minor=False,sh=False):
         for l in self.layers:
-            v = l.propdown(v,minor)
+            v = l.propdown(v,minor,sh)
         return v
-    def propagateUp(self,v,minor):
+    def propagateUp(self,v,minor=False,sh=False):
         for l in self.layers[-1::-1]:
-            v = l.propup(v,minor)
+            v = l.propup(v,minor,sh)
         return v
     @property
     def propagatedSurfaceCondition(self):
@@ -358,34 +365,48 @@ class Stack:
             nk = 1
         if self.nlayers==0:
             v = freeSurfaceBoundary(nk)
+            v2 = freeSurfaceBoundary(nk,sh=True)
         else:
             if self.layers[0].mu == 0.:
-                v = oceanFloorBoundary(self.layers[0].dz,self.omega,self.k,self.layers[0].sigma, self.layers[0].rho)
+                v = oceanFloorBoundary(self.layers[0].dz,self.omega,self.kk,self.layers[0].sigma, self.layers[0].rho)
+                v2 = oceanFloorBoundary(self.layers[0].dz,self.omega,self.kk,self.layers[0].sigma, self.layers[0].rho,sh=True)
             else:
-                v = self.layers[0].propdown(freeSurfaceBoundary(nk),True)
+                v = self.layers[0].propdown(freeSurfaceBoundary(nk),minor=True)
+                v2 = self.layers[0].propdown(freeSurfaceBoundary(nk,sh=True),sh=True)
             if self.nlayers>1:
-                v = self[1:].propagateDown(v,True)
-        return v
+                v = self[1:].propagateDown(v,minor=True)
+                v2 = self[1:].propagateDown(v2,sh=True)
+        return v,v2
     @property
     def propagatedBasalCondition(self):
         if not np.isinf(self.layers[-1].dz):
             raise ValueError("Basal boundary condition only defined for infinite halfspace")
-        v = underlyingHalfspaceBoundary(self.omega,self.k,*self.layers[-1].materialProperties)
+        v = underlyingHalfspaceBoundary(self.omega,self.kk,*self.layers[-1].materialProperties)
+        v2 = underlyingHalfspaceBoundary(self.omega,self.kk,*self.layers[-1].materialProperties,sh=True)
         if self.nlayers>1:
-            v = self[:-1].propagateUp(v,True)
-        return v
-    def H(self,omega,k):
+            v = self[:-1].propagateUp(v,minor=True)
+            v2 = self[:-1].propagateUp(v2,sh=True)
+        return v,v2
+    def H(self,omega,sh=False):
         if not self.iReceiver < self.iSource: raise ValueError("Source must lie below receiver")
         #if k==0: return ScaledMatrix(np.zeros([4,4],dtype='complex128'),0,None)
-        self.setFrequency(omega,k)
-        bcSurface_rec = self[:self.iReceiver].propagatedSurfaceCondition
-        bcBase_src = self[self.iSource:].propagatedBasalCondition
-        bcBase_rec = self[self.iReceiver:].propagatedBasalCondition
+        self.setFrequency(omega)
+        bcSurface_rec,bcSurface_rec2 = self[:self.iReceiver].propagatedSurfaceCondition
+        bcBase_src,bcBase_src2 = self[self.iSource:].propagatedBasalCondition
+        bcBase_rec,bcBase_rec2 = self[self.iReceiver:].propagatedBasalCondition
         Delta = makeDelta(bcSurface_rec,bcBase_rec)
-        H = ScaledMatrixStack(nStack = k.shape[0], N = 4, M = 4,dtypeData='complex128',dtypeScale='float64')
-        H[k>0] = makeN(bcSurface_rec[k>0]).matmul(self[self.iReceiver:self.iSource].propagateUp(makeN(bcBase_src),False)[k>0],out=H[k>0])
-        H[k>0]/=Delta[k>0]
-        return H
+        Delta2 = makeDelta(bcSurface_rec2,bcBase_rec2,sh=True)
+        H = ScaledMatrixStack(nStack = self.kk.shape[0], N = 4, M = 4,dtypeData='complex128',dtypeScale='float64')
+        H2 = ScaledMatrixStack(nStack = self.kk.shape[0],N=2,M=2,dtypeData='complex128',dtypeScale='float64')
+        H[self.kk>0] = makeN(bcSurface_rec[self.kk>0]).matmul(self[self.iReceiver:self.iSource].propagateUp(makeN(bcBase_src),False)[self.kk>0],out=H[self.kk>0])
+        H[self.kk>0]/=Delta[self.kk>0]
+        H2.M[:,0,0] = bcSurface_rec2.M[:,0,0]*bcBase_src2.M[:,1,0]
+        H2.M[:,0,1] = - bcSurface_rec2.M[:,0,0]*bcBase_src2.M[:,0,0]
+        H2.M[:,1,0] = bcSurface_rec2.M[:,1,0]*bcBase_src2.M[:,1,0]
+        H2.M[:,1,1] = -bcSurface_rec2.M[:,1,0]*bcBase_src2.M[:,0,0]
+        H2.scale[:] = bcSurface_rec2.scale+bcBase_src2.scale
+        H2/=Delta2
+        return H,H2
     def _insertLayer(self,z):
         stackz = 0.
         for ilayer,layer in enumerate(self.layers):
@@ -403,8 +424,43 @@ class Stack:
     def insertReceiver(self,z):
         if z<0: raise ValueError("Receiver must be at or below surface")
         self.iReceiver = self._insertLayer(z)
-    def b(self,omega,k,MT,F):
-        return (self.H(omega,k) @ sourceVector(MT,F,k,self.layers[self.iSource].sigma,self.layers[self.iSource].mu)).value
+    def b(self,omega,MT,F):
+        H,H2 = self.H(omega)
+        s,s2 = sourceVector(MT,F,self.kk,self.layers[self.iSource].sigma,self.layers[self.iSource].mu)
+        b = np.empty([self.kk.shape[0],6,5],dtype = 'complex128')
+        b[:,:4,:] = (H@s).value
+        b[:,4:,:] = (H2@s2).value
+        return b
+    def setRadii(self,rr):
+        self.rr = rr
+        self.jv = None
+        self.jvp = None
+    def setkk(self,kk):
+        self.kk=kk
+        self.jv = None
+        self.jvp = None
+    def makeIntegrands(self,omega,MT,F):
+        nk = self.kk.shape[0]
+        nr = self.rr.shape[0]
+        b = self.b(omega,MT,F)
+        K = np.zeros([nk,nr,3,5],dtype='complex128')
+        if self.jv is None:
+            self.jv = np.zeros([5,nk,nr])
+            for m in np.arange(-2,3):
+                self.jv[m+2,:,:] = spec.jv(m,np.outer(self.kk,self.rr))
+        if self.jvp is None:
+            self.jvp = np.zeros([5,nk,nr])
+            for m in np.arange(-2,3):
+                self.jvp[m+2,:,:] = spec.jvp(m,np.outer(self.kk,self.rr))
+        for m in np.arange(-2,3):
+            K[:,:,0,m] =self.kk.reshape(-1,1)*self.jvp[m,:,:]*b[:,1,m].reshape(-1,1)+1j*m*self.jv[m,:,:]*b[:,4,m].reshape(-1,1)/self.rr.reshape(1,-1)
+            K[:,:,1,m] =1j*m*self.jv[m,:,:]*b[:,1,m].reshape(-1,1)/self.rr.reshape(1,-1) +self.kk.reshape(-1,1)*self.jvp[m,:,:]*b[:,4,m].reshape(-1,1)
+            K[:,:,2,m] = self.kk.reshape(-1,1)*self.jv[m,:,:]*b[:,0,m].reshape(-1,1)
+        return K
+    def makeBesselArray(self,rr):
+        nr = rr.shape[0]
+        nk = self.k.shape[0]
+        self.bessel = spec.jv(np.tile(np.arange(-2,3).repeat(rr),nk),np.tile(rr,nk*5)).reshape(nk,5,nr)
     def trapzKm(self,omega,MT,F,r,kmin=0,kmax=2.04,nk = 1200):
         kk = np.linspace(kmin,kmax,nk)
         y = kk.reshape(nk,1)*self.b(omega,kk,MT,F)[:,0,:]*np.array([spec.jv(np.arange(-2,3),r*k) for k in kk]).reshape(nk,5)
@@ -413,28 +469,29 @@ class Stack:
         kk = np.linspace(0,kmax,nk)
         f = self.b(omega,kk,MT,F)[:,0,:]*spec.jv(np.tile(np.arange(-2,3),nk),np.repeat(r*kk,5)).reshape(nk,5)
         return kk[1]*(kk.dot(f) - 0.5*kmax*f[nk-1,:])
-    def getIntegrand(self,omega,MT,F,r):
-        return lambda k: k*(self.b(omega,k,MT,F) * spec.jv(np.arange(-2,3),k*r))
-    def K(self,omega,MT,F,r,phi):
-        eimp = np.exp(1j*phi*np.arange(-2,3))
-        return integ.quad(lambda k:np.real(k*(self.b(omega,k,MT,F) @ (eimp*spec.jv(np.arange(-2,3),k*r))) [0]),0,np.inf)[0]
-    def iK(self,omega,MT,F,r,phi):
-        eimp = np.exp(1j*phi*np.arange(-2,3))
-        return integ.quad(lambda k:np.imag(k*(self.b(omega,k,MT,F) @ (eimp*spec.jv(np.arange(-2,3),k*r))) [0]),0,np.inf)[0]
+    def K(self,omega,MT,F):
+        tpz = np.full(self.kk.shape,self.kk[1]-self.kk[0])
+        tpz[0]*=0.5
+        tpz[-1]*=0.5
+        return self.makeIntegrands(omega,MT,F).T.dot(tpz)
 
 def sourceVector(MT,F,k,sigma,mu):
     nk = k.shape[0]
     s = np.zeros([nk,4,5],dtype='complex128')
-
+    s2 = np.zeros([nk,2,5],dtype='complex128')
     s[:,0,2] = MT[2,2]/sigma
     s[:,2,2] = -F[2]
     s[:,3,2] = 0.5*k*(MT[0,0]+MT[1,1]) - k*(sigma-2*mu)*MT[2,2]/sigma
+    s2[:,1,2] =0.5*k*(MT[0,1]-MT[1,0])
     for sgn in [-1,1]:
         s[:,1,2+sgn] = 0.5*(sgn*MT[0,2] - 1j*MT[1,2])/mu
         s[:,2,2+sgn] = sgn*0.5*k*(MT[0,2]-MT[2,0])+0.5*1j*k*(MT[2,1]-MT[1,2])
         s[:,3,2+sgn] = 0.5*(-sgn*F[0]+1j*F[1])
         s[:,3,2+2*sgn] = 0.25*k*(MT[1,1]-MT[0,0])+sgn*0.25*1j*k*(MT[0,1]+MT[1,0])
-    return ScaledMatrixStack(s)
+        s2[:,0,2+sgn] = 0.5*(-sgn*MT[1,2]-1j*MT[0,2])/mu
+        s2[:,1,2+sgn] = 0.5*(sgn*F[1]+1j*F[0])
+        s2[:,1,2+2*sgn] = 0.25*k*(MT[0,1]+MT[1,0])-sgn*0.25*k*(MT[1,1]-MT[0,0])
+    return ScaledMatrixStack(s),ScaledMatrixStack(s2)
 
 def sourcetimefunc(omega,trise,trupt):
     uu = np.ones(omega.shape,dtype='complex128')
@@ -464,12 +521,15 @@ def makeN(scm):
     N[:,3,2] = -m[:,2,0]
     N[:,3,3] = -m[:,4,0]
     return ScaledMatrixStack(N,scm.scale)
-def makeDelta(scm1,scm2):
+def makeDelta(scm1,scm2,sh=False):
     m1 = scm1.M
     m2 = scm2.M
     if not scm1.nStack==scm2.nStack: raise ValueError("Dimension mismatch")
     m = np.zeros([scm1.nStack,1,1],dtype='complex128')
-    m[:,0,0] = m1[:,0,0]*m2[:,5,0] - m1[:,1,0]*m2[:,4,0] + m1[:,2,0]*m2[:,3,0] + m1[:,3,0]*m2[:,2,0] - m1[:,4,0]*m2[:,1,0] + m1[:,5,0]*m2[:,0,0]
+    if sh:
+        m[:,0,0] = m1[:,0,0]*m2[:,1,0] - m1[:,1,0]*m2[:,0,0]
+    else:
+        m[:,0,0] = m1[:,0,0]*m2[:,5,0] - m1[:,1,0]*m2[:,4,0] + m1[:,2,0]*m2[:,3,0] + m1[:,3,0]*m2[:,2,0] - m1[:,4,0]*m2[:,1,0] + m1[:,5,0]*m2[:,0,0]
     return ScaledMatrixStack(m,scm1.scale+scm2.scale)
     # return ScaledMatrix(m1[0]*m2[5] - m1[1]*m2[4] + m1[2]*m2[3] + m1[3]*m2[2] - m1[4]*m2[1] + m1[5]*m2[0],scm1.scale+scm2.scale)
 
@@ -609,14 +669,31 @@ def make6DPropagatorsZeroFreq(k,dz,sigma,mu,rho,Z = None,iZ = None,Mup = None,Md
     Mup = mexphap_c+mexphap_s+ScaledMatrixStack(mexphap_c_noscale+mexphap_s_noscale)
     Mdown = mexphap_c-mexphap_s+ScaledMatrixStack(mexphap_c_noscale-mexphap_s_noscale)
     return Z,iZ,Mup,Mdown
+def make2DPropagators(omega,k,dz,sigma,mu,rho,Pup = None,Pdown=None):
+    nk = k.shape[0]
+    zmu = np.lib.scimath.sqrt(k**2 - rho*omega**2/mu)
+    cmu,smu,scalemu = exphyp(dz*zmu)
+    if Pup is None: Pup = ScaledMatrixStack(nStack = nk,N = 2,M = 2,dtypeData='complex128',dtypeScale='float64')
+    if Pdown is None: Pdown = ScaledMatrixStack(nStack = nk,N = 2,M = 2,dtypeData='complex128',dtypeScale='float64')
+    Pup.M[:,0,0] = cmu
+    Pup.M[:,0,1] = smu/(mu*zmu)
+    Pup.M[:,1,0] = mu*zmu*smu
+    Pup.M[:,1,1] = cmu
+    Pup.scale[:] = scalemu
+    Pdown.M[:,0,0] = cmu
+    Pdown.M[:,0,1] = smu/(mu*zmu)
+    Pdown.M[:,1,0] = mu*zmu*smu
+    Pdown.M[:,1,1] = cmu
+    Pdown.scale[:] = scalemu
+    return Pup,Pdown
 
 def make4DPropagators(omega,k,dz,sigma,mu,rho, Z=None,iZ=None,Mup = None,Mdown=None):
     nk = k.shape[0]
     zmu = np.lib.scimath.sqrt(k**2 - rho*omega**2/mu)
-    ximu = zmu/k
+    #ximu = zmu/k
     zsig = np.lib.scimath.sqrt(k**2 - rho*omega**2/sigma)
-    xisig= zsig/k
-    xiprod = ximu*xisig
+    #xisig= zsig/k
+    #xiprod = ximu*xisig
     cmu,smu,scalemu = exphyp(dz*zmu)
     csig,ssig,scalesig = exphyp(dz*zsig)
     # If h -> -h, we see sign changes on smu, ssig only.
@@ -677,10 +754,10 @@ def make6DPropagators(omega,k,dz,sigma,mu,rho, Z=None,iZ=None,Mup = None,Mdown=N
     nk = k.shape[0]
 
     zmu = np.lib.scimath.sqrt(k**2 - rho*omega**2/mu)
-    ximu = zmu/k
+    # ximu = zmu/k
     zsig = np.lib.scimath.sqrt(k**2 - rho*omega**2/sigma)
-    xisig= zsig/k
-    xiprod = ximu*xisig
+    # xisig= zsig/k
+    xiprod = zsig*zmu/k**2
     cmu,smu,scalemu = exphyp(dz*zmu)
     csig,ssig,scalesig = exphyp(dz*zsig)
     # If h -> -h, we see sign changes on  X1 and X2 only.
@@ -784,35 +861,48 @@ def make6DPropagators(omega,k,dz,sigma,mu,rho, Z=None,iZ=None,Mup = None,Mdown=N
     Mdown = M1.add(M2,out=Mdown)
     return Z,iZ,Mup,Mdown
 
-def freeSurfaceBoundary(nk):
-    m = np.zeros([nk,6,1],dtype='complex128')
+def freeSurfaceBoundary(nk,sh=False):
+    if sh:
+        m = np.zeros([nk,2,1],dtype='complex128')
+    else:
+        m = np.zeros([nk,6,1],dtype='complex128')
     m[:,0,0] = 1
     return ScaledMatrixStack(m)
 
 
-def oceanFloorBoundary(depth,omega,k,sigma,rho,eps_om=1e-3,eps_k=1e-5):
+def oceanFloorBoundary(depth,omega,k,sigma,rho,sh=False):
     nk = k.shape[0]
-    zsig = np.lib.scimath.sqrt(k**2 - rho*omega**2/sigma)
-    t = np.exp(-2*depth*zsig)
-    m = np.zeros([nk,6,1],dtype='complex128')
-    m[:,0,0] = 1+t
-    if omega!=0: m[:,3,0] = -rho*omega**2*(1-t)/zsig
+    if sh:
+        m = np.zeros([nk,2,1],dtype='complex128')
+        m[:,0,0] = 1
+    else:
+        zsig = np.lib.scimath.sqrt(k**2 - rho*omega**2/sigma)
+        t = np.exp(-2*depth*zsig)
+        m = np.zeros([nk,6,1],dtype='complex128')
+        m[:,0,0] = 1+t
+        if omega!=0: m[:,3,0] = -rho*omega**2*(1-t)/zsig
     return ScaledMatrixStack(m)
 
-def underlyingHalfspaceBoundary(omega,k,sigma,mu,rho,eps_om=1e-3,eps_k=1e-5):
+def underlyingHalfspaceBoundary(omega,k,sigma,mu,rho,sh=False):
     nk = k.shape[0]
-    zsig = np.lib.scimath.sqrt(k**2 - rho*omega**2/sigma)
+
     zmu = np.lib.scimath.sqrt(k**2 - rho*omega**2/mu)
-    xi = np.zeros_like(zsig)
-    xi[k==0] = np.sqrt(mu/sigma)
-    xi[k>0] = (rho*omega**2/sigma - k[k>0]**2*(1+mu/sigma))/(k[k>0]**2+zsig[k>0]*zmu[k>0])
-    m = np.zeros([nk,6,1],dtype='complex128')
-    m[:,0,0] = xi/mu
-    m[:,1,0] = 2*k*(xi+0.5)
-    m[:,2,0] = -zsig
-    m[:,3,0] = zmu
-    m[:,4,0] = -2*k*(xi+0.5)
-    m[:,5,0] = rho*omega**2 - 4*k**2 * mu*(xi+1)
+    if sh:
+        m = np.zeros([nk,2,1],dtype='complex128')
+        m[:,0,0] = 1
+        m[:,1,0] = mu*zmu
+    else:
+        zsig = np.lib.scimath.sqrt(k**2 - rho*omega**2/sigma)
+        xi = np.zeros_like(zsig)
+        xi[k==0] = np.sqrt(mu/sigma)
+        xi[k>0] = (rho*omega**2/sigma - k[k>0]**2*(1+mu/sigma))/(k[k>0]**2+zsig[k>0]*zmu[k>0])
+        m = np.zeros([nk,6,1],dtype='complex128')
+        m[:,0,0] = xi/mu
+        m[:,1,0] = 2*k*(xi+0.5)
+        m[:,2,0] = -zsig
+        m[:,3,0] = zmu
+        m[:,4,0] = -2*k*(xi+0.5)
+        m[:,5,0] = rho*omega**2 - 4*k**2 * mu*(xi+1)
     return ScaledMatrixStack(m)
 
 def loado7(file,irec,icomp,ifreq,nk=1200,ncomp=3,nrecs=20,nfreq=257):
@@ -853,9 +943,12 @@ Mp8 = np.array([[154269088.0,-183850592.0,9.8580646514892578],
                 [-183850592.0,-154269120.0,3.5880444049835205],
                 [9.8580646514892578,3.5880444049835205,0.]])
 F = np.zeros([3])
-nfft = 257
+
 alpha = 0.023
 dt = 0.5
-kk = np.linspace(0,2.04,1200)
-rr = np.linspace(10,200,20)
-ww = 2*np.pi*np.linspace(0,1,2**8+1)-1j*alpha
+endpad = 128
+nt=512#257+endpad
+S.setRadii(np.linspace(10,200,20))
+S.setkk(np.linspace(0,2.04,1200))
+ww = 2*np.pi*np.fft.rfftfreq(nt,dt)-1j*alpha
+tt = np.arange(nt)*dt
