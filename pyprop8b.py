@@ -2,6 +2,7 @@ import numpy as np
 import scaledmatrix as scm
 import scipy.special as spec
 import tqdm
+import warnings
 # This code implements the seismogram calculation algorithm described in O'Toole & Woodhouse (2011).
 #
 # Andrew Valentine
@@ -36,7 +37,35 @@ class PointSource:
         else:
             raise ValueError("Moment tensor should be (Nx)3x3")
 class LayeredStructureModel:
-    def __init__(self,layers):
+    '''Class to represent a layered earth model.'''
+    def __init__(self,layers=None,interface_depth_form=False):
+        '''
+        Construct a model. If `interface_depth_form=True`, `layers` is
+        expected to contain information about interface depths and the properties
+        immediately below that depth (see `LayeredStructureModel.from_interface_list()`
+        for more details). Otherwise, it is expected to contain an ordered sequence of
+        layers specified by their thickness and material properties (see
+        `LayeredStructureModel.from_layer_list()`).
+        '''
+        if layers is None:
+            self.nlayers=None
+            self.dz=None
+            self.sigma=None
+            self.mu=None
+            self.rho = None
+        else:
+            if interface_depth_form:
+                self.from_interface_list(layers)
+            else:
+                self.from_layer_list(layers)
+    def from_layer_list(self,layers):
+        '''
+        Construct model from list-like structure where:
+        i.   Layers are given in order from surface to base;
+        ii.  Each layer is specified by four parameters: (thickness, Vp, Vs, density)
+        iii. The final entry in the list has thickness 'np.inf' and represents
+             the underlying infinite halfspace
+        '''
         self.nlayers = len(layers)
         self.dz = np.zeros(self.nlayers)
         self.sigma = np.zeros(self.nlayers)
@@ -44,10 +73,66 @@ class LayeredStructureModel:
         self.rho = np.zeros(self.nlayers)
         for i,layer in enumerate(layers):
             self.dz[i],vp,vs,rho = layer
+            if self.dz[i]<=0: raise ValueError("Layer thickness must be positive")
+            if vp<=0: raise ValueError("P-wave velocity must be positive")
+            if vs<0: raise ValueError("S-wave velocity must be positive or zero")
+            if rho<=0: raise ValueError("Density must be positive")
             self.sigma[i] = rho*vp**2
             self.mu[i] = rho*vs**2
             self.rho[i] = rho
+        if not np.isinf(self.dz[-1]): raise ValueError("Model should be terminated by 'infinite-thickness' layer representing underlying halfspace")
+    def from_interface_list(self,layers):
+        '''
+        Construct model from list-like structure where:
+        i.   Each entry in the list is specified by four parameters, (z, Vp, Vs, rho),
+             where z is an interface depth and (Vp, Vs, rho) represent the properties
+             immediately *below* that interface.
+        ii.  The list need not be ordered. If there are duplicates in the set of interface depths, the
+             first entry in the list will be used; others will be silently discarded.
+        iii. There must be one entry with an interface depth of z=0, representing the free surface.
+        iv.  The deepest interface is taken as specifying the properties of the underlying infinite half-space.
+        '''
+        nlayers = len(layers)
+        zz = np.zeros(nlayers)
+        vp = np.zeros(nlayers)
+        vs = np.zeros(nlayers)
+        rho = np.zeros(nlayers)
+        for i,layer in enumerate(layers):
+            zz[i],vp[i],vs[i],rho[i] = layer
+        if not np.all(zz>=0): raise ValueError("All interface depths must be positive or zero")
+        if not np.all(vp>0): raise ValueError("All Vp values must be positive")
+        if not np.all(vs>=0): raise ValueError("All Vs values must be positive or zero")
+        if not np.all(rho>0): raise ValueError("All density values must be positive")
+        # Discard duplicates
+        unique_z, index_z = np.unique(zz,return_index=True)
+        zz = zz[index_z]
+        vp = vp[index_z]
+        vs = vs[index_z]
+        rho = rho[index_z]
+        sort_order = np.argsort(zz)
+        if zz[sort_order[0]]!=0: raise ValueError("Must provide one interface at z=0")
+        self.nlayers = len(zz+1)
+        self.dz = np.zeros(self.nlayers)
+        self.sigma = np.zeros(self.nlayers)
+        self.mu = np.zeros(self.nlayers)
+        self.rho = np.zeros(self.nlayers)
+        for i in range(self.nlayers):
+            if i == self.nlayers-1:
+                self.dz[i] = np.inf
+            else:
+                self.dz[i] = zz[sort_order[i+1]]-zz[sort_order[i]]
+            self.sigma[i] = rho[sort_order[i]]*vp[sort_order[i]]**2
+            self.mu[i] = rho[sort_order[i]]*vs[sort_order[i]]**2
+            self.rho[i] = rho[sort_order[i]]
     def with_interfaces(self,*interfaces):
+        '''
+        Return arrays representing the layered model, with additional interfaces
+        inserted at the depths specified in ``*interfaces` (unless there is already
+        an interface at that depth). These additional interfaces do not alter the
+        material properties of the model (i.e. we end up with layers with duplicate
+        properties) and used to ensure that the source and receiver depths coincide
+        with an 'interface' as required by the theory.
+        '''
         dz = self.dz.copy()
         sigma = self.sigma.copy()
         mu = self.mu.copy()
@@ -84,6 +169,36 @@ class LayeredStructureModel:
                 N+=1
             indices+=[ilayer]
         return tuple([dz,sigma,mu,rho]+indices)
+    @property
+    def vp(self):
+        '''P-wave velocity'''
+        return np.sqrt(self.sigma/self.rho)
+    @property
+    def vs(self):
+        '''S-wave velocity'''
+        return np.sqrt(self.mu/self.rho)
+    def __repr__(self):
+        '''Pretty-print model'''
+        z = 0
+        out = []
+        for i in range(self.nlayers):
+            out += ['------------------------------------------------------- z = %.2f km\n'%z]
+            if self.vs[i]==0:
+                out+=  ['  vp =%5.2f km/s       FLUID        rho =%5.2f g/cm^3\n'%(self.vp[i],self.rho[i])]
+            else:
+                out+=  ['  vp =%5.2f km/s   vs =%5.2f km/s   rho =%5.2f g/cm^3\n'%(self.vp[i],self.vs[i],self.rho[i])]
+            z+=self.dz[i]
+        return ''.join(out)
+    def copy(self):
+        '''Return a copy of the current model'''
+        m = LayeredStructureModel()
+        m.nlayers = self.nlayers
+        m.dz = self.dz.copy()
+        m.sigma = self.sigma.copy()
+        m.mu = self.mu.copy()
+        m.rho = self.rho.copy()
+        return m
+
 
 
 
@@ -91,7 +206,10 @@ class ReceiverSet:
     def __init__(self):
         pass
     def validate(self):
-        pass
+        if np.any(self.rr<0): raise ValueError("Some receivers appear to be at negative radii")
+        if np.any(self.rr>200): warnings.warn("Source-receiver distances exceed 200 km. Flat-earth approximation may not be appropriate. ",RuntimeWarning)
+
+
 class RegularlyDistributedReceivers(ReceiverSet):
     def __init__(self,rmin,rmax,nr,phimin,phimax,nphi,degrees=True):
         super().__init__()
@@ -104,11 +222,18 @@ class RegularlyDistributedReceivers(ReceiverSet):
         return np.outer(self.rr,np.cos(self.pp)),np.outer(self.rr,np.sin(self.pp))
 
 class ListOfReceivers(ReceiverSet):
-    def __init__(self,rr,pp):
-        self.nr = rr.shape[0]
-        assert pp.shape[0] == self.nr
-        self.rr = rr
-        self.pp = pp
+    def __init__(self):
+        pass
+    def from_xy(self,xx,yy,x0=0,y0=0):
+        assert xx.shape[0] == yy.shape[0]
+        self.nr  = xx.shape[0]
+        self.rr = np.zeros(self.nr)
+        self.pp = np.zeros(self.nr)
+        for i,xy in enumerate(zip(xx,yy)):
+            x,y=xy
+            self.rr[i] = np.sqrt((x-x0)**2 + (y-y0)**2)
+            self.pp[i] = np.arctan2(y,x)
+
 
 
 
@@ -456,9 +581,10 @@ def kIntegrationStencil(kmin,kmax,nk):
     wts[-1] *= 0.5
     return kk,wts
 
-def compute_spectra(structure, source, stations ,station_depth, omegas, derivatives = None):
+def compute_spectra(structure, source, stations ,station_depth, omegas, derivatives = None, show_progress = True):
     # Compute spectra for (possibly multiple) receivers located at the
     # same depth on or below the surface.
+    stations.validate()
     try:
         nomegas = omegas.shape[0]
     except AttributeError:
@@ -520,8 +646,8 @@ def compute_spectra(structure, source, stations ,station_depth, omegas, derivati
                               [[0,1,0],[1,0,0],[0,0,0]],[[0,0,1],[0,0,0],[1,0,0]],[[0,0,0],[0,0,1],[0,1,0]]],dtype='float64')
         if derivatives.force:
             d_F = np.array([[[1],[0],[0]],[[0],[1],[0]],[[0],[0],[1]]],dtype='float64')
-
-    for iom,omega in enumerate(tqdm.tqdm(omegas)): #
+    if show_progress: t = tqdm.tqdm(total = nomegas)
+    for iom,omega in enumerate(omegas):
         H_psv,H_sh = compute_H_matrices(k[k!=0],omega,dz,sigma,mu,rho,isrc,irec)
         b = np.zeros([nk,nsources,6,5],dtype='complex128')
         for i in range(nsources):
@@ -616,6 +742,8 @@ def compute_spectra(structure, source, stations ,station_depth, omegas, derivati
             raise NotImplementedError
         del Km
         if do_derivatives: del d_Km
+        if show_progress: t.update(1)
+    if show_progress:t.close()
     if do_derivatives:
         return spectra,d_spectra
     else:
@@ -698,7 +826,7 @@ def clp(w,w0,w1):
 
 def compute_seismograms(structure, source, stations, station_depth, nt,dt,alpha,
                         source_time_function=None,pad_frac=0.1,kind ='displacement',
-                        return_spectra = False,derivatives=None):
+                        return_spectra = False,derivatives=None,show_progress = True):
     npad = int(pad_frac*nt)
     tt = np.arange(nt+npad)*dt
     ww = 2*np.pi*np.fft.rfftfreq(nt+npad,dt)-alpha*1j
@@ -711,7 +839,7 @@ def compute_seismograms(structure, source, stations, station_depth, nt,dt,alpha,
         else:
             do_derivatives = True
 
-    spectra = compute_spectra(structure,source,stations,station_depth,ww,derivatives)
+    spectra = compute_spectra(structure,source,stations,station_depth,ww,derivatives,show_progress)
     if do_derivatives:
         spectra,d_spectra = spectra
 
