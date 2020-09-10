@@ -1,4 +1,4 @@
-# prop8py
+# pyprop8
 
 This package implements the seismogram calculation algorithm set out in [O'Toole & Woodhouse (2011)](https://doi.org/10.1111/j.1365-246X.2011.05210.x), together with the source derivatives set out in [O'Toole, Valentine & Woodhouse (2012)](https://doi.org/10.1111/j.1365-246X.2012.05608.x).
 
@@ -10,7 +10,7 @@ Specifically, the algorithm enables:
 
 It is based on a Thompson-Haskell propagator matrix method, using a minor vector formalism to ensure numerial stability for the P-SV system.
 
-This package represents a complete re-implementation of the original Fortran code developed by Woodhouse and O'Toole, which is not readily available. The present version relies on array operations to compute seismograms for many receivers simultaneously. This enables rapid calculations, at the expense of memory consumption. If memory is limited, it is straightforward to divide receivers into subsets, and perform calculations for each subset separately.
+The current package represents a complete re-implementation of the original Fortran code developed by Woodhouse and O'Toole, which is not readily available. It is designed to use array operations to compute seismograms for many receivers simultaneously. This enables rapid calculations, at the expense of memory consumption. If memory is limited, it is straightforward to divide receivers into subsets, and perform calculations for each subset separately.
 
 Since the algorithm is formulated in a Cartesian (i.e. non-spherical) geometry, it is only intended for simulation of ground motion in the near field. As a rule of thumb, the flat-Earth approximation is applicable for distances up to around 200 km from the seismic source. It will be noted that the theory underpinning this code presently omits many physical phenomena relevant to the real Earth, including:
 
@@ -26,3 +26,5 @@ The present implementation is written solely in Python, and uses only standard l
 ## Package contents
 
 - `scaledmatrix.py`: Defines a class implementing an exponentially-scaled matrix type, enabling numerically-stable computations involving very large- and very small-valued matrices.
+- `pyprop8.py`: Core routines to compute seismic response.
+- `visualisations.py`: Generate various visualisations of the seismic wavefield.
