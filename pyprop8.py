@@ -3,11 +3,9 @@ import scaledmatrix as scm
 import scipy.special as spec
 import tqdm
 import warnings
-# This code implements the seismogram calculation algorithm described in O'Toole & Woodhouse (2011).
-#
-# Andrew Valentine
-# The Australian National University
-# 2020
+
+
+
 
 class PointSource:
     '''
@@ -211,12 +209,13 @@ class ReceiverSet:
 
 
 class RegularlyDistributedReceivers(ReceiverSet):
-    def __init__(self,rmin,rmax,nr,phimin,phimax,nphi,degrees=True):
+    def __init__(self,rmin,rmax,nr,phimin,phimax,nphi,depth = 0, degrees=True):
         super().__init__()
         self.nr = nr
         self.nphi = nphi
         self.rr = np.linspace(rmin,rmax,nr)
         self.pp = np.linspace(phimin,phimax,nphi)
+        self.depth = depth
         if degrees: self.pp = np.deg2rad(self.pp)
     def as_xy(self):
         return np.outer(self.rr,np.cos(self.pp)),np.outer(self.rr,np.sin(self.pp))
@@ -224,15 +223,18 @@ class RegularlyDistributedReceivers(ReceiverSet):
 class ListOfReceivers(ReceiverSet):
     def __init__(self):
         pass
-    def from_xy(self,xx,yy,x0=0,y0=0):
+    def from_xy(self,xx,yy,x0=0,y0=0,depth=0):
         assert xx.shape[0] == yy.shape[0]
         self.nr  = xx.shape[0]
         self.rr = np.zeros(self.nr)
         self.pp = np.zeros(self.nr)
-        for i,xy in enumerate(zip(xx,yy)):
-            x,y=xy
-            self.rr[i] = np.sqrt((x-x0)**2 + (y-y0)**2)
-            self.pp[i] = np.arctan2(y,x)
+        self.rr = np.sqrt((xx-x0)**2 + (yy-y0)**2)
+        self.pp = np.arctan2(yy,xx)
+        # for i,xy in enumerate(zip(xx,yy)):
+        #     x,y=xy
+        #     self.rr[i] = np.sqrt((x-x0)**2 + (y-y0)**2)
+        #     self.pp[i] = np.arctan2(y,x)
+        self.depth = depth
 
 
 
@@ -581,26 +583,17 @@ def kIntegrationStencil(kmin,kmax,nk):
     wts[-1] *= 0.5
     return kk,wts
 
-def compute_spectra(structure, source, stations ,station_depth, omegas, derivatives = None, show_progress = True):
+def compute_spectra(structure, source, stations, omegas, derivatives = None, show_progress = True):
     # Compute spectra for (possibly multiple) receivers located at the
     # same depth on or below the surface.
     stations.validate()
-    try:
-        nomegas = omegas.shape[0]
-    except AttributeError:
-        omegas = np.array([omegas])
-        nomegas = 1
-    except IndexError:
-        nomegas=1
+    omegas = np.atleast_1d(omegas)
+    nomegas = omegas.shape[0]
     nk = 1200
 
-    if derivatives is None:
-        do_derivatives = False
-    else:
-        if derivatives.nderivs == 0:
-            # Nothing actually turned on...
-            do_derivatives = False
-        else:
+    do_derivatives = False
+    if derivatives is not None:
+        if derivatives.nderivs > 0:
             do_derivatives = True
 
 
@@ -608,38 +601,42 @@ def compute_spectra(structure, source, stations ,station_depth, omegas, derivati
     nsources = source.n_sources
 
     k,k_wts = kIntegrationStencil(0.,2.04,nk)
+    k_wts/=(2*np.pi)
 
-    dz,sigma,mu,rho,isrc,irec = structure.with_interfaces(source.dep,station_depth)
+    dz,sigma,mu,rho,isrc,irec = structure.with_interfaces(source.dep,stations.depth)
     assert irec<isrc,"Receivers must be above source"
 
     # Set up Bessel function arrays
     mm = np.arange(-2,3)
-    jv = np.zeros([nk,1,nr,5])
-    jvp = np.zeros([nk,1,nr,5])
-    for m in mm:
-        jv[:,0,:,m+2] = spec.jv(m,np.outer(k,stations.rr))
-        jvp[:,0,:,m+2] = spec.jvp(m,np.outer(k,stations.rr))
+    jv = spec.jv(np.tile(mm,nr*nk),np.outer(k,stations.rr).repeat(5)).reshape(nk,nr,5)
+    jvp = spec.jvp(np.tile(mm,nr*nk),np.outer(k,stations.rr).repeat(5)).reshape(nk,nr,5)
     if do_derivatives:
         if derivatives.r:
-            djvp_dr = np.zeros([nk,1,nr,5])
-            for m in mm:
-                djvp_dr[:,0,:,m+2] = spec.jvp(m,np.outer(k,stations.rr),2)*(k.reshape(nk,1))
-            # djvp_dr = (-k.reshape(nk,1,1,1)*stations.rr.reshape(1,1,nr,1)*jvp \
-            #             - ((k**2).reshape(nk,1,1,1)*(stations.rr**2).reshape(1,1,nr,1)-(mm**2).reshape(1,1,1,5))*jv)/ \
-            #             (k.reshape(nk,1,1,1)*(stations.rr**2).reshape(1,1,nr,1))
+            djvp_dr = spec.jvp(np.tile(mm,nr*nk),np.outer(k,stations.rr).repeat(5),2).reshape(nk,nr,5)*k.reshape(-1,1,1)
 
     # Allocate output data arrays
     if type(stations) is RegularlyDistributedReceivers:
-        spectra = np.zeros([nsources,3,stations.nr,stations.nphi,nomegas],dtype='complex128')
-        if do_derivatives: d_spectra = np.zeros([nsources,derivatives.nderivs,3,stations.nr,stations.nphi,nomegas],dtype='complex128')
+        spectra = np.zeros([nsources,stations.nr,stations.nphi,3,nomegas],dtype='complex128')
+        if do_derivatives: d_spectra = np.zeros([nsources,stations.nr,stations.nphi,derivatives.nderivs,3,nomegas],dtype='complex128')
+        ss = slice(None)
+        es1 = 'k,ksm,krm,mp->srp'
+        es1d = 'k,ksdm,krm,mp->srpd'
+        es2 = 'm,ksm,krm,r,k,mp->srp'
+        es2d = 'm,ksdm,krm,r,k,mp->srpd'
+        es3 = 'k,ksm,krm,m,mp->srp'
     elif type(stations) is ListOfReceivers:
-        spectra = np.zeros([nsources,3,stations.nr,nomegas],dtype='complex128')
-        if do_derivatives: d_spectra = np.zeros([nsources,derivatives.nderivs,3,stations.nr,nomegas],dtype='complex128')
+        spectra = np.zeros([nsources,stations.nr,1,3,nomegas],dtype='complex128')
+        if do_derivatives: d_spectra = np.zeros([nsources,stations.nr,1,derivatives.nderivs,3,nomegas],dtype='complex128')
+        ss = 0
+        es1 = 'k,ksm,krm,mr->sr'
+        es1d = 'k,ksdm,krm,mr->srd'
+        es2 = 'm,ksm,krm,r,k,mr->sr'
+        es2d = 'm,ksdm,krm,r,k,mr->srd'
+        es3 = 'k,ksm,krm,m,mr->sr'
     else:
         raise NotImplementedError
 
-    rr = stations.rr.reshape(1,1,nr,1)
-
+    rr_inv = 1/stations.rr
     if do_derivatives:
         if derivatives.moment_tensor:
             d_Mxyz = np.array([[[1,0,0],[0,0,0],[0,0,0]],[[0,0,0],[0,1,0],[0,0,0]],[[0,0,0],[0,0,0],[0,0,1]],
@@ -647,6 +644,15 @@ def compute_spectra(structure, source, stations ,station_depth, omegas, derivati
         if derivatives.force:
             d_F = np.array([[[1],[0],[0]],[[0],[1],[0]],[[0],[0],[1]]],dtype='float64')
     if show_progress: t = tqdm.tqdm(total = nomegas)
+
+    plan_1 = False
+    plan_1d = False
+    plan_2 = False
+    plan_2d = False
+    plan_3 = False
+    determine_optimal_plan=True
+
+    eimphi = np.exp(np.outer(1j*mm/(2*np.pi),stations.pp))
     for iom,omega in enumerate(omegas):
         H_psv,H_sh = compute_H_matrices(k[k!=0],omega,dz,sigma,mu,rho,isrc,irec)
         b = np.zeros([nk,nsources,6,5],dtype='complex128')
@@ -655,7 +661,6 @@ def compute_spectra(structure, source, stations ,station_depth, omegas, derivati
             b[k!=0,i,:4,:] = (H_psv@s_psv).value
             b[k!=0,i,4:,:] = (H_sh@s_sh).value
         if do_derivatives:
-            #print("A")
             d_b = np.zeros([nk,nsources,derivatives.nderivs,6,5],dtype='complex128')
             if derivatives.moment_tensor:
                 j0 = derivatives.i_mt
@@ -678,76 +683,67 @@ def compute_spectra(structure, source, stations ,station_depth, omegas, derivati
                     s_psv,s_sh = sourceVector_ddep(source.Mxyz[i,:,:],source.F[i,:,0],omega,k[k!=0],sigma[isrc],mu[isrc],rho[isrc])
                     d_b[k!=0,i,j0,:4,:] = (H_psv@s_psv).value
                     d_b[k!=0,i,j0,4:,:] = (H_sh@s_sh).value
-        #print("B")
         del H_psv,H_sh,s_psv,s_sh
-        Km = np.zeros([nsources,3,nr,5],dtype='complex128')
-        Km[:,0,:,:] = ((k.reshape(nk,1,1,1)*b[:,:,1,:].reshape(nk,nsources,1,5)*jvp+ \
-                            1j*mm.reshape(1,1,1,5)*b[:,:,4,:].reshape(nk,nsources,1,5)*jv/rr)*k_wts.reshape(-1,1,1,1)).sum(0)
-        Km[:,1,:,:] = ((1j*mm.reshape(1,1,1,5)*b[:,:,1,:].reshape(nk,nsources,1,5)*jv/rr - \
-                            k.reshape(nk,1,1,1)*b[:,:,4,:].reshape(nk,nsources,1,5)*jvp)*k_wts.reshape(-1,1,1,1)).sum(0)
-        Km[:,2,:,:] = (k.reshape(nk,1,1,1)*b[:,:,0,:].reshape(nk,nsources,1,5)*jv*k_wts.reshape(-1,1,1,1)).sum(0)
+        if determine_optimal_plan and iom==0:
+            # First time through, determine optimal contraction schemes
+            plan_1,_ = np.einsum_path(es1,k*k_wts,b[:,:,1,:],jvp,eimphi)
+            plan_2,_ = np.einsum_path(es2,1j*mm,b[:,:,4,:],jv,rr_inv,k_wts,eimphi)
+            plan_3,_ = np.einsum_path(es3,k*k_wts,b[:,:,1,:],jvp,1j*mm,eimphi)
+            if do_derivatives:
+                plan_1d,_ = np.einsum_path(es1d,k*k_wts,d_b[:,:,j0:j0+6,1,:],jvp,eimphi)
+                plan_2d,_ = np.einsum_path(es2d,1j*mm,d_b[:,:,j0:j0+6,4,:],jv,rr_inv,k_wts,eimphi)
+        spectra[:,:,ss,0,iom] = np.einsum(es1,k*k_wts,b[:,:,1,:],jvp,eimphi,optimize=plan_1)+ \
+                        np.einsum(es2,1j*mm,b[:,:,4,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)
+        spectra[:,:,ss,1,iom] = np.einsum(es2,1j*mm,b[:,:,1,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)-\
+                        np.einsum(es1,k*k_wts,b[:,:,4,:],jvp,eimphi,optimize=plan_1)
+        spectra[:,:,ss,2,iom] = np.einsum(es1,k*k_wts,b[:,:,0,:],jv,eimphi,optimize=plan_1)
         if do_derivatives:
-            d_Km = np.zeros([nsources,derivatives.nderivs,3,nr,5],dtype='complex128')
             if derivatives.moment_tensor:
                 j0 = derivatives.i_mt
-                d_Km[:,j0:j0+6,0,:,:] = ((k.reshape(nk,1,1,1,1)*d_b[:,:,j0:j0+6,1,:].reshape(nk,nsources,6,1,5)*jvp.reshape(nk,1,1,nr,5)+ \
-                                            1j*mm.reshape(1,1,1,1,5)*d_b[:,:,j0:j0+6,4,:].reshape(nk,nsources,6,1,5)* \
-                                            jv.reshape(nk,1,1,nr,5)/rr.reshape(1,1,1,nr,1))*k_wts.reshape(-1,1,1,1,1)).sum(0)
-                d_Km[:,j0:j0+6,1,:,:] = ((1j*mm.reshape(1,1,1,1,5)*d_b[:,:,j0:j0+6,1,:].reshape(nk,nsources,6,1,5)* \
-                                            jv.reshape(nk,1,1,nr,5)/rr.reshape(1,1,1,nr,1) - \
-                                            k.reshape(nk,1,1,1,1)*d_b[:,:,j0:j0+6,4,:].reshape(nk,nsources,6,1,5)* \
-                                            jvp.reshape(nk,1,1,nr,5))*k_wts.reshape(-1,1,1,1,1)).sum(0)
-                d_Km[:,j0:j0+6,2,:,:] = (k.reshape(nk,1,1,1,1)*d_b[:,:,j0:j0+6,0,:].reshape(nk,nsources,6,1,5)* \
-                                            jv.reshape(nk,1,1,nr,5)*k_wts.reshape(-1,1,1,1,1)).sum(0)
+                d_spectra[:,:,ss,j0:j0+6,0,iom] = np.einsum(es1d,k*k_wts,d_b[:,:,j0:j0+6,1,:],jvp,eimphi,optimize=plan_1d)+ \
+                                np.einsum(es2d,1j*mm,d_b[:,:,j0:j0+6,4,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2d)
+                d_spectra[:,:,ss,j0:j0+6,1,iom] = np.einsum(es2d,1j*mm,d_b[:,:,j0:j0+6,1,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2d)-\
+                                np.einsum(es1d,k*k_wts,d_b[:,:,j0:j0+6,4,:],jvp,eimphi,optimize=plan_1d)
+                d_spectra[:,:,ss,j0:j0+6,2,iom] = np.einsum(es1d,k*k_wts,d_b[:,:,j0:j0+6,0,:],jv,eimphi,optimize=plan_1d)
             if derivatives.force:
                 j0 = derivatives.i_f
-                d_Km[:,j0:j0+3,0,:,:] = ((k.reshape(nk,1,1,1,1)*d_b[:,:,j0:j0+3,1,:].reshape(nk,nsources,3,1,5)*jvp.reshape(nk,1,1,nr,5)+ \
-                                            1j*mm.reshape(1,1,1,1,5)*d_b[:,:,j0:j0+3,4,:].reshape(nk,nsources,3,1,5)*jv.reshape(nk,1,1,nr,5)/rr.reshape(1,1,1,nr,1))*k_wts.reshape(-1,1,1,1,1)).sum(0)
-                d_Km[:,j0:j0+3,1,:,:] = ((1j*mm.reshape(1,1,1,1,5)*d_b[:,:,j0:j0+3,1,:].reshape(nk,nsources,3,1,5)*jv.reshape(nk,1,1,nr,5)/rr.reshape(1,1,1,nr,1) - \
-                                            k.reshape(nk,1,1,1,1)*d_b[:,:,j0:j0+3,4,:].reshape(nk,nsources,3,1,5)*jvp.reshape(nk,1,1,nr,5))*k_wts.reshape(-1,1,1,1,1)).sum(0)
-                d_Km[:,j0:j0+3,2,:,:] = (k.reshape(nk,1,1,1,1)*d_b[:,:,j0:j0+3,0,:].reshape(nk,nsources,3,1,5)*jv.reshape(nk,1,1,nr,5)*k_wts.reshape(-1,1,1,1,1)).sum(0)
+                d_spectra[:,:,ss,j0:j0+3,0,iom] = np.einsum(es1d,k*k_wts,d_b[:,:,j0:j0+3,1,:],jvp,eimphi,optimize=plan_1d)+ \
+                                np.einsum(es2d,1j*mm,d_b[:,:,j0:j0+3,4,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2d)
+                d_spectra[:,:,ss,j0:j0+3,1,iom] = np.einsum(es2d,1j*mm,d_b[:,:,j0:j0+3,1,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2d)-\
+                                np.einsum(es1d,k*k_wts,d_b[:,:,j0:j0+3,4,:],jvp,eimphi,optimize=plan_1d)
+                d_spectra[:,:,ss,j0:j0+3,2,iom] = np.einsum(es1d,k*k_wts,d_b[:,:,j0:j0+3,0,:],jv,eimphi,optimize=plan_1d)
             if derivatives.r:
                 j0 = derivatives.i_r
-                d_Km[:,j0,0,:,:] = ((k.reshape(nk,1,1,1)*b[:,:,1,:].reshape(nk,nsources,1,5)*djvp_dr - \
-                                        1j*mm.reshape(1,1,1,5)*b[:,:,4,:].reshape(nk,nsources,1,5)*jv/rr**2 +\
-                                        1j*mm.reshape(1,1,1,5)*b[:,:,4,:].reshape(nk,nsources,1,5)*jvp*k.reshape(nk,1,1,1)/rr)*k_wts.reshape(-1,1,1,1)).sum(0)
-                d_Km[:,j0,0,:,:] = ((-1j*mm.reshape(1,1,1,5)*b[:,:,4,:].reshape(nk,nsources,1,5)*jv/(rr**2) +\
-                                        1j*mm.reshape(1,1,1,5)*b[:,:,4,:].reshape(nk,nsources,1,5)*k.reshape(nk,1,1,1)*jvp/rr -\
-                                        k.reshape(nk,1,1,1)*b[:,:,4,:].reshape(nk,nsources,1,5)*djvp_dr)*k_wts.reshape(-1,1,1,1)).sum(0)
-                d_Km[:,j0,0,:,:] = (((k**2).reshape(nk,1,1,1)*b[:,:,0,:].reshape(nk,nsources,1,5)*jvp)*k_wts.reshape(-1,1,1,1)).sum(0)
+                d_spectra[:,:,ss,j0,0,iom] = np.einsum(es1,k*k_wts,b[:,:,1,:],djvp_dr,eimphi,optimize=plan_1) - \
+                                        np.einsum(es2,1j*mm,b[:,:,4,:],jv,rr_inv**2,k_wts,eimphi,optimize=plan_2) +\
+                                        np.einsum(es2,1j*mm,b[:,:,4,:],jvp,rr_inv,k*k_wts,eimphi,optimize=plan_2)
+                d_spectra[:,:,ss,j0,1,iom] = np.einsum(es2,-1j*mm,b[:,:,1,:],jv,rr_inv**2,k_wts,eimphi,optimize=plan_2) +\
+                                        np.einsum(es2,1j*mm,b[:,:,1,:],jvp,rr_inv,k*k_wts,eimphi,optimize=plan_2) -\
+                                        np.einsum(es1,k*k_wts,b[:,:,4,:],djvp_dr,eimphi,optimize=plan_1)
+                d_spectra[:,:,ss,j0,2,iom] = np.einsum(es1,k*k*k_wts,b[:,:,0,:],jvp,eimphi,optimize=plan_1)
             if derivatives.phi:
                 j0 = derivatives.i_phi
-                d_Km[:,j0,:,:,:] = 1j*mm.reshape(1,1,1,5)*Km
+                d_spectra[:,:,ss,j0,0,iom] = np.einsum(es3,k*k_wts,b[:,:,1,:],jvp,1j*mm,eimphi,optimize=plan_3)+ \
+                                np.einsum(es2,-mm*mm,b[:,:,4,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)
+                d_spectra[:,:,ss,j0,1,iom] = np.einsum(es2,mm*mm,b[:,:,1,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)-\
+                                np.einsum(es3,k*k_wts,b[:,:,4,:],jvp,-1j*mm,eimphi,optimize=plan_3)
+                d_spectra[:,:,ss,j0,2,iom] = np.einsum(es3,k*k_wts,b[:,:,0,:],jv,-1j*mm,eimphi,optimize=plan_3)
             if derivatives.depth:
                 j0 = derivatives.i_dep
-                d_Km[:,j0,0,:,:] = ((k.reshape(nk,1,1,1)*d_b[:,:,j0,1,:].reshape(nk,nsources,1,5)*jvp+ \
-                                    1j*mm.reshape(1,1,1,5)*d_b[:,:,j0,4,:].reshape(nk,nsources,1,5)*jv/rr)*k_wts.reshape(-1,1,1,1)).sum(0)
-                d_Km[:,j0,1,:,:] = ((1j*mm.reshape(1,1,1,5)*d_b[:,:,j0,1,:].reshape(nk,nsources,1,5)*jv/rr - \
-                                    k.reshape(nk,1,1,1)*d_b[:,:,j0,4,:].reshape(nk,nsources,1,5)*jvp)*k_wts.reshape(-1,1,1,1)).sum(0)
-                d_Km[:,j0,2,:,:] = (k.reshape(nk,1,1,1)*d_b[:,:,j0,0,:].reshape(nk,nsources,1,5)*jv*k_wts.reshape(-1,1,1,1)).sum(0)
-
+                d_spectra[:,:,ss,j0,0,iom] = np.einsum(es1,k*k_wts,d_b[:,:,j0,1,:],jvp,eimphi,optimize=plan_1)+ \
+                                np.einsum(es2,1j*mm,d_b[:,:,j0,4,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)
+                d_spectra[:,:,ss,j0,1,iom] = np.einsum(es2,1j*mm,d_b[:,:,j0,1,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)-\
+                                np.einsum(es1,k*k_wts,d_b[:,:,j0,4,:],jvp,eimphi,optimize=plan_1)
+                d_spectra[:,:,ss,j0,2,iom] = np.einsum(es1,k*k_wts,d_b[:,:,j0,0,:],jv,eimphi,optimize=plan_1)
             if derivatives.time:
                 j0 = derivatives.i_time
-                d_Km[:,j0,:,:,:] = -1j*omega*Km
-        if type(stations) is RegularlyDistributedReceivers:
-            spectra[:,:,:,:,iom] = Km.dot(np.exp(1j*np.outer(mm,stations.pp)))/(2*np.pi)
-            if do_derivatives:
-                d_spectra[:,:,:,:,:,iom] = d_Km.dot(np.exp(1j*np.outer(mm,stations.pp)))/(2*np.pi)
-        elif type(stations) is ListOfReceivers:
-            for ip,phi in enumerate(stations.pp):
-                spectra[:,:,ip,iom] = Km[:,:,ip,:].dot(np.exp(1j*mm*phi))/(2*np.pi)
-                if do_derivatives:
-                    d_spectra[:,:,:,ip,iom] = Km[:,:,:,ip,:].dot(np.exp(1j*mm*phi))/(2*np.pi)
-        else:
-            raise NotImplementedError
-        del Km
-        if do_derivatives: del d_Km
+                d_spectra[:,:,ss,j0,:,iom] = -1j*omega*spectra[:,:,ss,:,iom]
         if show_progress: t.update(1)
     if show_progress:t.close()
     if do_derivatives:
-        return spectra,d_spectra
+        return spectra.squeeze(),d_spectra.squeeze()
     else:
-        return spectra
+        return spectra.squeeze()
 
 
 
@@ -824,8 +820,8 @@ def clp(w,w0,w1):
     else:
         return 0
 
-def compute_seismograms(structure, source, stations, station_depth, nt,dt,alpha,
-                        source_time_function=None,pad_frac=0.1,kind ='displacement',
+def compute_seismograms(structure, source, stations, nt,dt,alpha,
+                        source_time_function=None,pad_frac=0.25,kind ='displacement',
                         return_spectra = False,derivatives=None,show_progress = True):
     npad = int(pad_frac*nt)
     tt = np.arange(nt+npad)*dt
@@ -839,7 +835,7 @@ def compute_seismograms(structure, source, stations, station_depth, nt,dt,alpha,
         else:
             do_derivatives = True
 
-    spectra = compute_spectra(structure,source,stations,station_depth,ww,derivatives,show_progress)
+    spectra = compute_spectra(structure,source,stations,ww,derivatives,show_progress)
     if do_derivatives:
         spectra,d_spectra = spectra
 
@@ -943,6 +939,6 @@ class DerivativeSwitches:
         if self.phi: i+=1
         if self.depth: i+=1
         return i
-stations = RegularlyDistributedReceivers(20,150,5,0,360,8)
+stations = RegularlyDistributedReceivers(20,150,5,0,360,8,depth=3)
 model = LayeredStructureModel([(3.,1.8,0.,1.02),(2.,4.5,2.4,2.57),(5.,5.8,3.3,2.63),(20.,6.5,3.65,2.85),(np.inf,8.,4.56,3.34)])
 source = PointSource(0,0,20,rtf2xyz(makeMomentTensor(330,90,0,2.4E8,0,0)),np.zeros([3,1]),0)
