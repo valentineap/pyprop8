@@ -583,13 +583,13 @@ def kIntegrationStencil(kmin,kmax,nk):
     wts[-1] *= 0.5
     return kk,wts
 
-def compute_spectra(structure, source, stations, omegas, derivatives = None, show_progress = True):
+def compute_spectra(structure, source, stations, omegas, derivatives = None, show_progress = True,
+                    stencil = kIntegrationStencil, stencil_kwargs = {'kmin':0,'kmax':2.04,'nk':1200} ):
     # Compute spectra for (possibly multiple) receivers located at the
     # same depth on or below the surface.
     stations.validate()
     omegas = np.atleast_1d(omegas)
     nomegas = omegas.shape[0]
-    nk = 1200
 
     do_derivatives = False
     if derivatives is not None:
@@ -598,9 +598,10 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
 
 
     nr = stations.nr
+    rr_inv = 1/stations.rr
     nsources = source.n_sources
 
-    k,k_wts = kIntegrationStencil(0.,2.04,nk)
+    k,k_wts = stencil(**stencil_kwargs)
     k_wts/=(2*np.pi)
 
     dz,sigma,mu,rho,isrc,irec = structure.with_interfaces(source.dep,stations.depth)
@@ -611,9 +612,13 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
     jv = spec.jv(np.tile(mm,nr*nk),np.outer(k,stations.rr).repeat(5)).reshape(nk,nr,5)
     jvp = spec.jvp(np.tile(mm,nr*nk),np.outer(k,stations.rr).repeat(5)).reshape(nk,nr,5)
     if do_derivatives:
+        if derivatives.moment_tensor:
+            d_Mxyz = np.array([[[1,0,0],[0,0,0],[0,0,0]],[[0,0,0],[0,1,0],[0,0,0]],[[0,0,0],[0,0,0],[0,0,1]],
+                              [[0,1,0],[1,0,0],[0,0,0]],[[0,0,1],[0,0,0],[1,0,0]],[[0,0,0],[0,0,1],[0,1,0]]],dtype='float64')
+        if derivatives.force:
+            d_F = np.array([[[1],[0],[0]],[[0],[1],[0]],[[0],[0],[1]]],dtype='float64')
         if derivatives.r:
             djvp_dr = spec.jvp(np.tile(mm,nr*nk),np.outer(k,stations.rr).repeat(5),2).reshape(nk,nr,5)*k.reshape(-1,1,1)
-
     # Allocate output data arrays
     if type(stations) is RegularlyDistributedReceivers:
         spectra = np.zeros([nsources,stations.nr,stations.nphi,3,nomegas],dtype='complex128')
@@ -636,13 +641,7 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
     else:
         raise NotImplementedError
 
-    rr_inv = 1/stations.rr
-    if do_derivatives:
-        if derivatives.moment_tensor:
-            d_Mxyz = np.array([[[1,0,0],[0,0,0],[0,0,0]],[[0,0,0],[0,1,0],[0,0,0]],[[0,0,0],[0,0,0],[0,0,1]],
-                              [[0,1,0],[1,0,0],[0,0,0]],[[0,0,1],[0,0,0],[1,0,0]],[[0,0,0],[0,0,1],[0,1,0]]],dtype='float64')
-        if derivatives.force:
-            d_F = np.array([[[1],[0],[0]],[[0],[1],[0]],[[0],[0],[1]]],dtype='float64')
+
     if show_progress: t = tqdm.tqdm(total = nomegas)
 
     plan_1 = False
@@ -652,7 +651,7 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
     plan_3 = False
     determine_optimal_plan=True
 
-    eimphi = np.exp(np.outer(1j*mm/(2*np.pi),stations.pp))
+    eimphi = np.exp(np.outer(1j*mm,stations.pp))/(2*np.pi)r
     for iom,omega in enumerate(omegas):
         H_psv,H_sh = compute_H_matrices(k[k!=0],omega,dz,sigma,mu,rho,isrc,irec)
         b = np.zeros([nk,nsources,6,5],dtype='complex128')
@@ -822,7 +821,7 @@ def clp(w,w0,w1):
 
 def compute_seismograms(structure, source, stations, nt,dt,alpha,
                         source_time_function=None,pad_frac=0.25,kind ='displacement',
-                        return_spectra = False,derivatives=None,show_progress = True):
+                        return_spectra = False,derivatives=None,show_progress = True,**kwargs):
     npad = int(pad_frac*nt)
     tt = np.arange(nt+npad)*dt
     ww = 2*np.pi*np.fft.rfftfreq(nt+npad,dt)-alpha*1j
@@ -835,7 +834,7 @@ def compute_seismograms(structure, source, stations, nt,dt,alpha,
         else:
             do_derivatives = True
 
-    spectra = compute_spectra(structure,source,stations,ww,derivatives,show_progress)
+    spectra = compute_spectra(structure,source,stations,ww,derivatives,show_progress,**kwargs)
     if do_derivatives:
         spectra,d_spectra = spectra
 
