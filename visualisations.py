@@ -68,7 +68,7 @@ def generate_surface_movie2(structure,source,stf = None):
     # ngrid = 25
     # xx,yy = np.meshgrid(np.linspace(-100,100,ngrid),np.linspace(-100,100,ngrid))
     # stations.from_xy(xx.flatten(),yy.flatten(),depth=depth)
-    nt = 400
+    nt = 200
     dt = .125
     alpha=0.023
     tt,seis = compute_seismograms(structure,source,stations,nt,dt,alpha,source_time_function = stf,pad_frac=2)
@@ -83,7 +83,7 @@ def generate_surface_movie2(structure,source,stf = None):
     ax.set_yticks([])
     ax.set_zlim(-1.05*amax,amax*1.05)
     ax.axes.set_box_aspect((2,2,1))
-    ngrid = 120
+    ngrid = 40
     xxg,yyg = np.meshgrid(np.linspace(-50,50,ngrid),np.linspace(-50,50,ngrid))
     zero_centre = lambda m:np.where(np.sqrt(xxg**2+yyg**2)<5,0,m)
     # print(ls.shade(zero_centre(griddata(np.array([xx.flatten(),yy.flatten()]).T,seis[:,:,2,0].flatten(),\

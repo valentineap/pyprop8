@@ -602,6 +602,7 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
     nsources = source.n_sources
 
     k,k_wts = stencil(**stencil_kwargs)
+    nk = k.shape[0]
     k_wts/=(2*np.pi)
 
     dz,sigma,mu,rho,isrc,irec = structure.with_interfaces(source.dep,stations.depth)
@@ -639,7 +640,7 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
         es2d = 'm,ksdm,krm,r,k,mr->srd'
         es3 = 'k,ksm,krm,m,mr->sr'
     else:
-        raise NotImplementedError
+        raise NotImplementedError("Unrecognised receiver object, type: %s"%(type(stations)))
 
 
     if show_progress: t = tqdm.tqdm(total = nomegas)
@@ -651,9 +652,10 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
     plan_3 = False
     determine_optimal_plan=True
 
-    eimphi = np.exp(np.outer(1j*mm,stations.pp))/(2*np.pi)r
+    eimphi = np.exp(np.outer(1j*mm,stations.pp))
     for iom,omega in enumerate(omegas):
         H_psv,H_sh = compute_H_matrices(k[k!=0],omega,dz,sigma,mu,rho,isrc,irec)
+
         b = np.zeros([nk,nsources,6,5],dtype='complex128')
         for i in range(nsources):
             s_psv,s_sh = sourceVector(source.Mxyz[i,:,:],source.F[i,:,0],k[k!=0],sigma[isrc],mu[isrc])
@@ -824,7 +826,9 @@ def compute_seismograms(structure, source, stations, nt,dt,alpha,
                         return_spectra = False,derivatives=None,show_progress = True,**kwargs):
     npad = int(pad_frac*nt)
     tt = np.arange(nt+npad)*dt
-    ww = 2*np.pi*np.fft.rfftfreq(nt+npad,dt)-alpha*1j
+    ww = 2*np.pi*np.fft.rfftfreq(nt+npad,dt)
+    delta_omega = ww[1]
+    ww=ww-alpha*1j
     if derivatives is None:
         do_derivatives = False
     else:
@@ -857,7 +861,7 @@ def compute_seismograms(structure, source, stations, nt,dt,alpha,
         spectra *= stf.reshape((spec_shape_n-1)*[1]+[-1])
         if do_derivatives: d_spectra *= stf.reshape((spec_shape_n)*[1]+[-1])
     # Inverse FFT
-    seis = (nt+npad)*np.fft.irfft(spectra)/(2*np.pi)
+    seis = (nt+npad)*delta_omega*np.fft.irfft(spectra)/(2*np.pi)
     # Discard 'padding' and scale by exp(alpha t)
     seis = seis[tuple((spec_shape_n-1)*[slice(None)]+[slice(None,nt)])]*np.exp(alpha*tt[:nt]).reshape((spec_shape_n-1)*[1]+[-1])
     if do_derivatives:
@@ -938,6 +942,6 @@ class DerivativeSwitches:
         if self.phi: i+=1
         if self.depth: i+=1
         return i
-stations = RegularlyDistributedReceivers(20,150,5,0,360,8,depth=3)
+stations = RegularlyDistributedReceivers(10,150,5,0,360,8,depth=3)
 model = LayeredStructureModel([(3.,1.8,0.,1.02),(2.,4.5,2.4,2.57),(5.,5.8,3.3,2.63),(20.,6.5,3.65,2.85),(np.inf,8.,4.56,3.34)])
-source = PointSource(0,0,20,rtf2xyz(makeMomentTensor(330,90,0,2.4E8,0,0)),np.zeros([3,1]),0)
+source = PointSource(0,0,20,rtf2xyz(makeMomentTensor(340,90,0,2.4E8,0,0)),np.zeros([3,1]),0)
