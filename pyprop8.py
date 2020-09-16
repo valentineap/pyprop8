@@ -206,11 +206,18 @@ class ReceiverSet:
     def validate(self):
         if np.any(self.rr<0): raise ValueError("Some receivers appear to be at negative radii")
         if np.any(self.rr>200): warnings.warn("Source-receiver distances exceed 200 km. Flat-earth approximation may not be appropriate. ",RuntimeWarning)
+    def copy(self):
+        raise NotImplementedError
+    @property
+    def nDim(self):
+        raise NotImplementedError
 
 
 class RegularlyDistributedReceivers(ReceiverSet):
-    def __init__(self,rmin,rmax,nr,phimin,phimax,nphi,depth = 0, degrees=True):
+    def __init__(self,*args,**kwargs):
         super().__init__()
+        if len(args)>0 or len(kwargs)>0: self.from_ranges(*args,**kwargs)
+    def from_ranges(self,rmin,rmax,nr,phimin,phimax,nphi,depth = 0, degrees=True):
         self.nr = nr
         self.nphi = nphi
         self.rr = np.linspace(rmin,rmax,nr)
@@ -219,10 +226,25 @@ class RegularlyDistributedReceivers(ReceiverSet):
         if degrees: self.pp = np.deg2rad(self.pp)
     def as_xy(self):
         return np.outer(self.rr,np.cos(self.pp)),np.outer(self.rr,np.sin(self.pp))
+    def copy(self):
+        other = RegularlyDistributedReceivers()
+        other.nr = self.nr
+        other.nphi = self.nphi
+        other.rr = self.rr.copy()
+        other.pp = self.pp.copy()
+        other.depth = self.depth
+        return other
+    @property
+    def nDim(self):
+        n = 0
+        if self.nr>1: n+=1
+        if self.nphi>1: n+=1
+        return n
+
 
 class ListOfReceivers(ReceiverSet):
     def __init__(self):
-        pass
+        super().__init__()
     def from_xy(self,xx,yy,x0=0,y0=0,depth=0):
         assert xx.shape[0] == yy.shape[0]
         self.nr  = xx.shape[0]
@@ -235,7 +257,19 @@ class ListOfReceivers(ReceiverSet):
         #     self.rr[i] = np.sqrt((x-x0)**2 + (y-y0)**2)
         #     self.pp[i] = np.arctan2(y,x)
         self.depth = depth
-
+    def copy(self):
+        other = ListOfReceivers()
+        other.nr = self.nr
+        other.nphi = self.nphi
+        other.rr = self.rr.copy()
+        other.pp = self.pp.copy()
+        other.depth = self.depth
+        return other
+    @property
+    def nDim(self):
+        n = 0
+        if self.nr>1: n+=1
+        return n
 
 
 
@@ -691,8 +725,9 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
             plan_2,_ = np.einsum_path(es2,1j*mm,b[:,:,4,:],jv,rr_inv,k_wts,eimphi)
             plan_3,_ = np.einsum_path(es3,k*k_wts,b[:,:,1,:],jvp,1j*mm,eimphi)
             if do_derivatives:
-                plan_1d,_ = np.einsum_path(es1d,k*k_wts,d_b[:,:,j0:j0+6,1,:],jvp,eimphi)
-                plan_2d,_ = np.einsum_path(es2d,1j*mm,d_b[:,:,j0:j0+6,4,:],jv,rr_inv,k_wts,eimphi)
+                if derivatives.moment_tensor or derivatives.force:
+                    plan_1d,_ = np.einsum_path(es1d,k*k_wts,d_b[:,:,0:6,1,:],jvp,eimphi)
+                    plan_2d,_ = np.einsum_path(es2d,1j*mm,d_b[:,:,0:6,4,:],jv,rr_inv,k_wts,eimphi)
         spectra[:,:,ss,0,iom] = np.einsum(es1,k*k_wts,b[:,:,1,:],jvp,eimphi,optimize=plan_1)+ \
                         np.einsum(es2,1j*mm,b[:,:,4,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)
         spectra[:,:,ss,1,iom] = np.einsum(es2,1j*mm,b[:,:,1,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)-\
@@ -865,7 +900,7 @@ def compute_seismograms(structure, source, stations, nt,dt,alpha,
     # Discard 'padding' and scale by exp(alpha t)
     seis = seis[tuple((spec_shape_n-1)*[slice(None)]+[slice(None,nt)])]*np.exp(alpha*tt[:nt]).reshape((spec_shape_n-1)*[1]+[-1])
     if do_derivatives:
-        deriv = (nt+npad)*np.fft.irfft(d_spectra)/(2*np.pi)
+        deriv = (nt+npad)*delta_omega*np.fft.irfft(d_spectra)/(2*np.pi)
         deriv = deriv[tuple((spec_shape_n)*[slice(None)]+[slice(None,nt)])]*np.exp(alpha*tt[:nt]).reshape((spec_shape_n)*[1]+[-1])
     if return_spectra:
         if do_derivatives:
@@ -904,7 +939,7 @@ class DerivativeSwitches:
         return i
     @property
     def i_f(self):
-        if not self.force: return none
+        if not self.force: return None
         i=0
         if self.moment_tensor: i+=6
         return i
@@ -942,6 +977,8 @@ class DerivativeSwitches:
         if self.phi: i+=1
         if self.depth: i+=1
         return i
+
+
 stations = RegularlyDistributedReceivers(10,150,5,0,360,8,depth=3)
 model = LayeredStructureModel([(3.,1.8,0.,1.02),(2.,4.5,2.4,2.57),(5.,5.8,3.3,2.63),(20.,6.5,3.65,2.85),(np.inf,8.,4.56,3.34)])
 source = PointSource(0,0,20,rtf2xyz(makeMomentTensor(340,90,0,2.4E8,0,0)),np.zeros([3,1]),0)
