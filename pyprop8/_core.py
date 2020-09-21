@@ -1,7 +1,7 @@
 import numpy as np
-import scaledmatrix as scm
+from pyprop8 import _scaledmatrix as scm
 import scipy.special as spec
-import tqdm
+from tqdm.autonotebook import tqdm
 import warnings
 
 
@@ -25,15 +25,17 @@ class PointSource:
         assert F.shape[-2:]==(3,1),"Force vector must be (Nx)3x1"
         if len(Mxyz.shape)==3:
             assert Mxyz.shape[0]==F.shape[0],"Mxyz and F should have matching first dimension"
-            self.n_sources = Mxyz.shape[0]
+            self.nsources = Mxyz.shape[0]
             self.Mxyz = Mxyz.copy()
             self.F = F.copy()
         elif len(Mxyz.shape)==2:
-            self.n_sources = 1
+            self.nsources = 1
             self.Mxyz = Mxyz.reshape(1,3,3)
             self.F = F.reshape(1,3,1)
         else:
             raise ValueError("Moment tensor should be (Nx)3x3")
+    def copy(self):
+        return PointSource(self.lat,self.lon,self.dep,self.Mxyz,self.F,self.time)
 class LayeredStructureModel:
     '''Class to represent a layered earth model.'''
     def __init__(self,layers=None,interface_depth_form=False):
@@ -240,6 +242,9 @@ class RegularlyDistributedReceivers(ReceiverSet):
         if self.nr>1: n+=1
         if self.nphi>1: n+=1
         return n
+    @property
+    def nstations(self):
+        return self.nr*self.nphi
 
 
 class ListOfReceivers(ReceiverSet):
@@ -252,15 +257,10 @@ class ListOfReceivers(ReceiverSet):
         self.pp = np.zeros(self.nr)
         self.rr = np.sqrt((xx-x0)**2 + (yy-y0)**2)
         self.pp = np.arctan2(yy,xx)
-        # for i,xy in enumerate(zip(xx,yy)):
-        #     x,y=xy
-        #     self.rr[i] = np.sqrt((x-x0)**2 + (y-y0)**2)
-        #     self.pp[i] = np.arctan2(y,x)
         self.depth = depth
     def copy(self):
         other = ListOfReceivers()
         other.nr = self.nr
-        other.nphi = self.nphi
         other.rr = self.rr.copy()
         other.pp = self.pp.copy()
         other.depth = self.depth
@@ -270,8 +270,409 @@ class ListOfReceivers(ReceiverSet):
         n = 0
         if self.nr>1: n+=1
         return n
+    @property
+    def nstations(self):
+        return self.nr
 
 
+
+def kIntegrationStencil(kmin,kmax,nk):
+    '''
+    An integration stencil based on the trapezium rule.
+    Inputs:
+    kmin,kmax - float, upper and lower limits of integration
+    nk        - int, number of evaluation points
+
+    Returns:
+    ndarray,ndarray - evaluation points and associated weights
+    '''
+    kk = np.linspace(kmin,kmax,nk)
+    wts = np.full(nk,kk[1]-kk[0])
+    wts[0] *= 0.5
+    wts[-1] *= 0.5
+    return kk,wts
+
+def compute_spectra(structure, source, stations, omegas, derivatives = None, show_progress = True,
+                    stencil = kIntegrationStencil, stencil_kwargs = {'kmin':0,'kmax':2.04,'nk':1200},
+                    squeeze_outputs=True ):
+    """
+    Calculate and return velocity spectra for a given source and earth model at
+    specified locations.
+
+    Inputs:
+    structure - type(LayeredStructureModel): object defining the earth model in
+        which calculation should be performed
+    source - type(PointSource): object defining the source(s) for which
+        calculation should be performed
+    stations - type(ListOfReceivers) or type(RegularlyDistributedReceivers):
+        object defining locations at which spectra should be generated.
+    omegas - ndarray, dtype(complex), shape(N,): set of freqencies at which
+        spectrum is required
+    derivatives - optional, type(DerivativeSwitches) or None: Object specifying
+        which derivatives (if any) are to be computed. If None, no derivatives
+        are returned.
+    show_progress - optional, boolean: Switch for progress bars. Default: True
+    stencil - optional, callable, stencil(**kwargs): function returning array of
+        points and array of associated weights defining a quadrature scheme for
+        the integral over wavenumber, k. Default is to employ a trapezium-rule
+        integration scheme.
+    stencil_kwargs - optional, dictionary: arguments that will be passed to
+        stencil()
+    squeeze_outputs - optional, boolean: Call np.squeeze() on output arrays?
+         Default: True.
+
+    If no derivatives are requested, returns:
+    ndarray - the requested spectra. Array shape depends on arguments.
+         If `stations` is of type `RegularlyDistributedReceivers`, i.e.
+         receivers lie on an (r, phi) grid, then spectra have shape
+         (sources.nsources, stations.nr, stations.nphi, 3, len(omegas) )
+         with the penultimate dimension representing three channels:
+         (radial, transverse, vertical).
+
+         If `stations` is of type `ListOfReceivers`, then spectra have shape
+         (sources.nsources, stations.nstations, 3, len(omegas) ).
+
+    If derivatives are requested, returns:
+    ndarray, ndarray - the requested spectra (as above), and the corresponding
+         derivatives in an array dimensioned
+         ( ..., DerivativeSwitches.nderivs, 3, len(omegas))
+         where the leading dimensions are as for the spectra themselves.
+
+
+    In all cases, if `squeeze_outputs=True` (default), then `np.squeeze()`
+    will be called, discarding dimensions with only one entry.
+
+
+    """
+    stations.validate()
+    omegas = np.atleast_1d(omegas)
+    nomegas = omegas.shape[0]
+
+    do_derivatives = False
+    if derivatives is not None:
+        if derivatives.nderivs > 0:
+            do_derivatives = True
+
+
+    nr = stations.nr
+    rr_inv = 1/stations.rr
+    nsources = source.nsources
+
+    k,k_wts = stencil(**stencil_kwargs)
+    nk = k.shape[0]
+    k_wts/=(2*np.pi)
+
+    dz,sigma,mu,rho,isrc,irec = structure.with_interfaces(source.dep,stations.depth)
+    assert irec<isrc,"Receivers must be above source"
+
+    # Set up Bessel function arrays
+    mm = np.arange(-2,3)
+    jv = spec.jv(np.tile(mm,nr*nk),np.outer(k,stations.rr).repeat(5)).reshape(nk,nr,5)
+    jvp = spec.jvp(np.tile(mm,nr*nk),np.outer(k,stations.rr).repeat(5)).reshape(nk,nr,5)
+    if do_derivatives:
+        if derivatives.moment_tensor:
+            d_Mxyz = np.array([[[1,0,0],[0,0,0],[0,0,0]],[[0,0,0],[0,1,0],[0,0,0]],[[0,0,0],[0,0,0],[0,0,1]],
+                              [[0,1,0],[1,0,0],[0,0,0]],[[0,0,1],[0,0,0],[1,0,0]],[[0,0,0],[0,0,1],[0,1,0]]],dtype='float64')
+        if derivatives.force:
+            d_F = np.array([[[1],[0],[0]],[[0],[1],[0]],[[0],[0],[1]]],dtype='float64')
+        if derivatives.r:
+            djvp_dr = spec.jvp(np.tile(mm,nr*nk),np.outer(k,stations.rr).repeat(5),2).reshape(nk,nr,5)*k.reshape(-1,1,1)
+    # Allocate output data arrays
+    if type(stations) is RegularlyDistributedReceivers:
+        spectra = np.zeros([nsources,stations.nr,stations.nphi,3,nomegas],dtype='complex128')
+        if do_derivatives: d_spectra = np.zeros([nsources,stations.nr,stations.nphi,derivatives.nderivs,3,nomegas],dtype='complex128')
+        ss = slice(None)
+        es1 = 'k,ksm,krm,mp->srp'
+        es1d = 'k,ksdm,krm,mp->srpd'
+        es2 = 'm,ksm,krm,r,k,mp->srp'
+        es2d = 'm,ksdm,krm,r,k,mp->srpd'
+        es3 = 'k,ksm,krm,m,mp->srp'
+    elif type(stations) is ListOfReceivers:
+        spectra = np.zeros([nsources,stations.nr,1,3,nomegas],dtype='complex128')
+        if do_derivatives: d_spectra = np.zeros([nsources,stations.nr,1,derivatives.nderivs,3,nomegas],dtype='complex128')
+        ss = 0
+        es1 = 'k,ksm,krm,mr->sr'
+        es1d = 'k,ksdm,krm,mr->srd'
+        es2 = 'm,ksm,krm,r,k,mr->sr'
+        es2d = 'm,ksdm,krm,r,k,mr->srd'
+        es3 = 'k,ksm,krm,m,mr->sr'
+    else:
+        raise NotImplementedError("Unrecognised receiver object, type: %s"%(type(stations)))
+
+
+    if show_progress: t = tqdm(total = nomegas)
+
+    plan_1 = False
+    plan_1d = False
+    plan_2 = False
+    plan_2d = False
+    plan_3 = False
+    determine_optimal_plan=True
+
+    eimphi = np.exp(np.outer(1j*mm,stations.pp))
+    for iom,omega in enumerate(omegas):
+        H_psv,H_sh = compute_H_matrices(k[k!=0],omega,dz,sigma,mu,rho,isrc,irec)
+
+        b = np.zeros([nk,nsources,6,5],dtype='complex128')
+        for i in range(nsources):
+            s_psv,s_sh = sourceVector(source.Mxyz[i,:,:],source.F[i,:,0],k[k!=0],sigma[isrc],mu[isrc])
+            b[k!=0,i,:4,:] = (H_psv@s_psv).value
+            b[k!=0,i,4:,:] = (H_sh@s_sh).value
+        if do_derivatives:
+            d_b = np.zeros([nk,nsources,derivatives.nderivs,6,5],dtype='complex128')
+            if derivatives.moment_tensor:
+                j0 = derivatives.i_mt
+                for j in range(6):
+                    #print(j)
+                    s_psv,s_sh = sourceVector(d_Mxyz[j,:,:],np.zeros([3]),k[k!=0],sigma[isrc],mu[isrc])
+                    for i in range(nsources):
+                        d_b[k!=0,i,j0+j,:4,:] = (H_psv@s_psv).value
+                        d_b[k!=0,i,j0+j,4:,:] = (H_sh@s_sh).value
+            if derivatives.force:
+                j0 = derivatives.i_f
+                for j in range(3):
+                    s_psv,s_sh = sourceVector(np.zeros(3,3),d_F[j,:,0],k[k!=0],sigma[isrc],mu[isrc])
+                    for i in range(nsources):
+                        d_b[k!=0,i,j0+j,:4,:] = (H_psv@s_psv).value
+                        d_b[k!=0,i,j0+j,4:,:] = (H_sh@s_sh).value
+            if derivatives.depth:
+                j0 = derivatives.i_dep
+                for i in range(nsources):
+                    s_psv,s_sh = sourceVector_ddep(source.Mxyz[i,:,:],source.F[i,:,0],omega,k[k!=0],sigma[isrc],mu[isrc],rho[isrc])
+                    d_b[k!=0,i,j0,:4,:] = (H_psv@s_psv).value
+                    d_b[k!=0,i,j0,4:,:] = (H_sh@s_sh).value
+        del H_psv,H_sh,s_psv,s_sh
+        if determine_optimal_plan and iom==0:
+            # First time through, determine optimal contraction schemes
+            plan_1,_ = np.einsum_path(es1,k*k_wts,b[:,:,1,:],jvp,eimphi)
+            plan_2,_ = np.einsum_path(es2,1j*mm,b[:,:,4,:],jv,rr_inv,k_wts,eimphi)
+            plan_3,_ = np.einsum_path(es3,k*k_wts,b[:,:,1,:],jvp,1j*mm,eimphi)
+            if do_derivatives:
+                if derivatives.moment_tensor or derivatives.force:
+                    plan_1d,_ = np.einsum_path(es1d,k*k_wts,d_b[:,:,0:6,1,:],jvp,eimphi)
+                    plan_2d,_ = np.einsum_path(es2d,1j*mm,d_b[:,:,0:6,4,:],jv,rr_inv,k_wts,eimphi)
+        spectra[:,:,ss,0,iom] = np.einsum(es1,k*k_wts,b[:,:,1,:],jvp,eimphi,optimize=plan_1)+ \
+                        np.einsum(es2,1j*mm,b[:,:,4,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)
+        spectra[:,:,ss,1,iom] = np.einsum(es2,1j*mm,b[:,:,1,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)-\
+                        np.einsum(es1,k*k_wts,b[:,:,4,:],jvp,eimphi,optimize=plan_1)
+        spectra[:,:,ss,2,iom] = np.einsum(es1,k*k_wts,b[:,:,0,:],jv,eimphi,optimize=plan_1)
+        if do_derivatives:
+            if derivatives.moment_tensor:
+                j0 = derivatives.i_mt
+                d_spectra[:,:,ss,j0:j0+6,0,iom] = np.einsum(es1d,k*k_wts,d_b[:,:,j0:j0+6,1,:],jvp,eimphi,optimize=plan_1d)+ \
+                                np.einsum(es2d,1j*mm,d_b[:,:,j0:j0+6,4,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2d)
+                d_spectra[:,:,ss,j0:j0+6,1,iom] = np.einsum(es2d,1j*mm,d_b[:,:,j0:j0+6,1,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2d)-\
+                                np.einsum(es1d,k*k_wts,d_b[:,:,j0:j0+6,4,:],jvp,eimphi,optimize=plan_1d)
+                d_spectra[:,:,ss,j0:j0+6,2,iom] = np.einsum(es1d,k*k_wts,d_b[:,:,j0:j0+6,0,:],jv,eimphi,optimize=plan_1d)
+            if derivatives.force:
+                j0 = derivatives.i_f
+                d_spectra[:,:,ss,j0:j0+3,0,iom] = np.einsum(es1d,k*k_wts,d_b[:,:,j0:j0+3,1,:],jvp,eimphi,optimize=plan_1d)+ \
+                                np.einsum(es2d,1j*mm,d_b[:,:,j0:j0+3,4,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2d)
+                d_spectra[:,:,ss,j0:j0+3,1,iom] = np.einsum(es2d,1j*mm,d_b[:,:,j0:j0+3,1,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2d)-\
+                                np.einsum(es1d,k*k_wts,d_b[:,:,j0:j0+3,4,:],jvp,eimphi,optimize=plan_1d)
+                d_spectra[:,:,ss,j0:j0+3,2,iom] = np.einsum(es1d,k*k_wts,d_b[:,:,j0:j0+3,0,:],jv,eimphi,optimize=plan_1d)
+            if derivatives.r:
+                j0 = derivatives.i_r
+                d_spectra[:,:,ss,j0,0,iom] = np.einsum(es1,k*k_wts,b[:,:,1,:],djvp_dr,eimphi,optimize=plan_1) - \
+                                        np.einsum(es2,1j*mm,b[:,:,4,:],jv,rr_inv**2,k_wts,eimphi,optimize=plan_2) +\
+                                        np.einsum(es2,1j*mm,b[:,:,4,:],jvp,rr_inv,k*k_wts,eimphi,optimize=plan_2)
+                d_spectra[:,:,ss,j0,1,iom] = np.einsum(es2,-1j*mm,b[:,:,1,:],jv,rr_inv**2,k_wts,eimphi,optimize=plan_2) +\
+                                        np.einsum(es2,1j*mm,b[:,:,1,:],jvp,rr_inv,k*k_wts,eimphi,optimize=plan_2) -\
+                                        np.einsum(es1,k*k_wts,b[:,:,4,:],djvp_dr,eimphi,optimize=plan_1)
+                d_spectra[:,:,ss,j0,2,iom] = np.einsum(es1,k*k*k_wts,b[:,:,0,:],jvp,eimphi,optimize=plan_1)
+            if derivatives.phi:
+                j0 = derivatives.i_phi
+                d_spectra[:,:,ss,j0,0,iom] = np.einsum(es3,k*k_wts,b[:,:,1,:],jvp,1j*mm,eimphi,optimize=plan_3)+ \
+                                np.einsum(es2,-mm*mm,b[:,:,4,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)
+                d_spectra[:,:,ss,j0,1,iom] = np.einsum(es2,-mm*mm,b[:,:,1,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)-\
+                                np.einsum(es3,k*k_wts,b[:,:,4,:],jvp,1j*mm,eimphi,optimize=plan_3)
+                d_spectra[:,:,ss,j0,2,iom] = np.einsum(es3,k*k_wts,b[:,:,0,:],jv,1j*mm,eimphi,optimize=plan_3)
+            if derivatives.depth:
+                j0 = derivatives.i_dep
+                d_spectra[:,:,ss,j0,0,iom] = np.einsum(es1,k*k_wts,d_b[:,:,j0,1,:],jvp,eimphi,optimize=plan_1)+ \
+                                np.einsum(es2,1j*mm,d_b[:,:,j0,4,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)
+                d_spectra[:,:,ss,j0,1,iom] = np.einsum(es2,1j*mm,d_b[:,:,j0,1,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)-\
+                                np.einsum(es1,k*k_wts,d_b[:,:,j0,4,:],jvp,eimphi,optimize=plan_1)
+                d_spectra[:,:,ss,j0,2,iom] = np.einsum(es1,k*k_wts,d_b[:,:,j0,0,:],jv,eimphi,optimize=plan_1)
+            if derivatives.time:
+                j0 = derivatives.i_time
+                d_spectra[:,:,ss,j0,:,iom] = -1j*omega*spectra[:,:,ss,:,iom]
+        if show_progress: t.update(1)
+    if show_progress:
+        t.close()
+    if do_derivatives:
+        if squeeze_outputs:
+            return spectra.squeeze(),d_spectra.squeeze()
+        else:
+            return spectra, d_spectra
+    else:
+        if squeeze_outputs:
+            return spectra.squeeze()
+        else:
+            return spectra
+
+
+
+def compute_H_matrices(k,omega,dz,sigma,mu,rho,isrc,irec):
+    nlayers = dz.shape[0]
+    # Propagate surface b/c to receiver
+    if mu[0] == 0:
+        surface_bc_sh = oceanFloorBoundary(dz[0],omega,k,sigma[0],rho[0],True)
+        surface_bc_psv = oceanFloorBoundary(dz[0],omega,k,sigma[0],rho[0],False)
+        ibc = 1
+    else:
+        surface_bc_sh = freeSurfaceBoundary(k.shape[0],True)
+        surface_bc_psv = freeSurfaceBoundary(k.shape[0],False)
+        ibc = 0
+    for i in range(ibc,irec):
+        surface_bc_sh, _, surface_bc_psv = propagate(omega,k,-dz[i],sigma[i],mu[i],rho[i],m2=surface_bc_sh,m6=surface_bc_psv)
+    # Propagate basal b/c to source depth
+    basal_bc_sh = underlyingHalfspaceBoundary(omega,k,sigma[-1],mu[-1],rho[-1],True)
+    basal_bc_psv = underlyingHalfspaceBoundary(omega,k,sigma[-1],mu[-1],rho[-1],False)
+    for i in range(nlayers-2,isrc-1,-1):
+        #print(i,dz[i],sigma[i],mu[i],rho[i])
+        basal_bc_sh,_,basal_bc_psv = propagate(omega,k,dz[i],sigma[i],mu[i],rho[i],m2=basal_bc_sh,m6=basal_bc_psv)
+    basal_bc_sh_at_src = basal_bc_sh.copy()
+    # basal_bc_psv_at_src = basal_bc_psv.copy()
+    # Create N and continue to propagate everything up to receiver
+    N = makeN(basal_bc_psv)
+    for i in range(isrc-1,irec-1,-1):
+        basal_bc_sh,N,basal_bc_psv = propagate(omega,k,dz[i],sigma[i],mu[i],rho[i],m2=basal_bc_sh,m4=N,m6=basal_bc_psv)
+    # Now assemble H
+    H_psv = (makeN(surface_bc_psv) @ N)/makeDelta(surface_bc_psv,basal_bc_psv)
+    H_sh = np.zeros([k.shape[0],2,2],dtype='complex128')
+    H_sh[:,0,0] = surface_bc_sh.M[:,0,0]*basal_bc_sh_at_src.M[:,1,0]
+    H_sh[:,0,1] = - surface_bc_sh.M[:,0,0]*basal_bc_sh_at_src.M[:,0,0]
+    H_sh[:,1,0] = surface_bc_sh.M[:,1,0]*basal_bc_sh_at_src.M[:,1,0]
+    H_sh[:,1,1] = -surface_bc_sh.M[:,1,0]*basal_bc_sh_at_src.M[:,0,0]
+    H_sh = scm.ScaledMatrixStack(H_sh,surface_bc_sh.scale+basal_bc_sh_at_src.scale)/makeDelta(surface_bc_sh,basal_bc_sh,sh=True)
+    return H_psv,H_sh
+
+
+
+
+
+def compute_seismograms(structure, source, stations, nt,dt,alpha,
+                        source_time_function=None,pad_frac=0.25,kind ='displacement',
+                        return_spectra = False,derivatives=None,show_progress = True,**kwargs):
+    npad = int(pad_frac*nt)
+    tt = np.arange(nt+npad)*dt
+    ww = 2*np.pi*np.fft.rfftfreq(nt+npad,dt)
+    delta_omega = ww[1]
+    ww=ww-alpha*1j
+    if derivatives is None:
+        do_derivatives = False
+    else:
+        if derivatives.nderivs == 0:
+            # Nothing actually turned on...
+            do_derivatives = False
+        else:
+            do_derivatives = True
+
+    spectra = compute_spectra(structure,source,stations,ww,derivatives,show_progress,**kwargs)
+    if do_derivatives:
+        spectra,d_spectra = spectra
+
+    spec_shape = spectra.shape
+    spec_shape_n = len(spec_shape)
+    if kind == 'displacement':
+        spectra /= 1j*ww.reshape((spec_shape_n-1)*[1]+[-1])
+        if do_derivatives:d_spectra /= 1j*ww.reshape((spec_shape_n)*[1]+[-1])
+    elif kind == 'velocity':
+        pass
+    elif kind == 'acceleration':
+        spectra *= 1j*ww.reshape((spec_shape_n-1)*[1]+[-1])
+        if do_derivatives:d_spectra *= 1j*ww.reshape((spec_shape_n)*[1]+[-1])
+    else:
+        raise ValueError("Unrecognised seismogram kind '%s'; should be one of 'displacement', 'velocity' or 'acceleration'."%kind)
+    if source_time_function is not None:
+        stf = np.zeros(ww.shape[0],dtype='complex128')
+        for i,w in enumerate(ww):
+            stf[i] = source_time_function(w)
+        spectra *= stf.reshape((spec_shape_n-1)*[1]+[-1])
+        if do_derivatives: d_spectra *= stf.reshape((spec_shape_n)*[1]+[-1])
+    # Inverse FFT
+    seis = (nt+npad)*delta_omega*np.fft.irfft(spectra)/(2*np.pi)
+    # Discard 'padding' and scale by exp(alpha t)
+    seis = seis[tuple((spec_shape_n-1)*[slice(None)]+[slice(None,nt)])]*np.exp(alpha*tt[:nt]).reshape((spec_shape_n-1)*[1]+[-1])
+    if do_derivatives:
+        deriv = (nt+npad)*delta_omega*np.fft.irfft(d_spectra)/(2*np.pi)
+        deriv = deriv[tuple((spec_shape_n)*[slice(None)]+[slice(None,nt)])]*np.exp(alpha*tt[:nt]).reshape((spec_shape_n)*[1]+[-1])
+    if return_spectra:
+        if do_derivatives:
+            return tt[:nt],seis,deriv,ww,spectra
+        else:
+            return tt[:nt],seis,ww,spectra
+    else:
+        if do_derivatives:
+            return tt[:nt],seis,deriv
+        else:
+            return tt[:nt],seis
+
+class DerivativeSwitches:
+    def __init__(self,moment_tensor = False, force = False,
+                      r = False, phi = False, depth = False, time = False):
+        self.moment_tensor = moment_tensor
+        self.force = force
+        self.r = r
+        self.phi = phi
+        self.depth = depth
+        self.time = time
+    @property
+    def nderivs(self):
+        n = 0
+        if self.moment_tensor: n+=6
+        if self.force: n+=3
+        if self.r: n+=1
+        if self.phi: n+=1
+        if self.depth: n+=1
+        if self.time: n +=1
+        return n
+    @property
+    def i_mt(self):
+        if not self.moment_tensor: return None
+        i = 0
+        return i
+    @property
+    def i_f(self):
+        if not self.force: return None
+        i=0
+        if self.moment_tensor: i+=6
+        return i
+    @property
+    def i_r(self):
+        if not self.r: return None
+        i=0
+        if self.moment_tensor: i+=6
+        if self.force: i+=3
+        return i
+    @property
+    def i_phi(self):
+        if not self.phi: return None
+        i=0
+        if self.moment_tensor: i+=6
+        if self.force: i+=3
+        if self.r: i+=1
+        return i
+    @property
+    def i_dep(self):
+        if not self.depth: return None
+        i=0
+        if self.moment_tensor: i+=6
+        if self.force: i+=3
+        if self.r: i+=1
+        if self.phi: i+=1
+        return i
+    @property
+    def i_time(self):
+        if not self.time: return None
+        i=0
+        if self.moment_tensor: i+=6
+        if self.force: i+=3
+        if self.r: i+=1
+        if self.phi: i+=1
+        if self.depth: i+=1
+        return i
 
 ##################################
 ### Boundary condition vectors ###
@@ -350,7 +751,7 @@ def sourceVector_ddep(MT,F,omega,k,sigma,mu,rho):
     s[:,3,2] = -k*lam*F[2]/sigma
     s2[:,0,2] = k*(-MT[0,1]+MT[1,0])/(2*mu)
     for sgn in [-1,1]:
-        s[:,0,2+sgn] = k*((lam+mu)*(-sgn*MT[0,2]+1j*MT[1,2]) + mu*(sgn*MT[2,0]-1j*MT[2,1]))
+        s[:,0,2+sgn] = k*((lam+mu)*(-sgn*MT[0,2]+1j*MT[1,2]) + mu*(sgn*MT[2,0]-1j*MT[2,1]))/(2*mu*sigma)
         s[:,1,2+sgn] = (sgn*F[0]-1j*F[1])/(2*mu)
         s[:,2,2+sgn] = 0.5*k*(sgn*F[0]-1j*F[1])
         s[:,3,2+sgn] = (k**2 * lam*(-sgn*MT[2,0]+1j*MT[2,1])+(sgn*MT[0,2]-1j*MT[1,2])*(k**2 * (lam*mu - (gamma+mu)*sigma+rho*sigma*omega**2))/mu)/(2*sigma)
@@ -609,376 +1010,3 @@ def makeDelta(scm1,scm2,sh=False):
     else:
         m[:,0,0] = m1[:,0,0]*m2[:,5,0] - m1[:,1,0]*m2[:,4,0] + m1[:,2,0]*m2[:,3,0] + m1[:,3,0]*m2[:,2,0] - m1[:,4,0]*m2[:,1,0] + m1[:,5,0]*m2[:,0,0]
     return scm.ScaledMatrixStack(m,scm1.scale+scm2.scale)
-
-def kIntegrationStencil(kmin,kmax,nk):
-    kk = np.linspace(kmin,kmax,nk)
-    wts = np.full(nk,kk[1]-kk[0])
-    wts[0] *= 0.5
-    wts[-1] *= 0.5
-    return kk,wts
-
-def compute_spectra(structure, source, stations, omegas, derivatives = None, show_progress = True,
-                    stencil = kIntegrationStencil, stencil_kwargs = {'kmin':0,'kmax':2.04,'nk':1200} ):
-    # Compute spectra for (possibly multiple) receivers located at the
-    # same depth on or below the surface.
-    stations.validate()
-    omegas = np.atleast_1d(omegas)
-    nomegas = omegas.shape[0]
-
-    do_derivatives = False
-    if derivatives is not None:
-        if derivatives.nderivs > 0:
-            do_derivatives = True
-
-
-    nr = stations.nr
-    rr_inv = 1/stations.rr
-    nsources = source.n_sources
-
-    k,k_wts = stencil(**stencil_kwargs)
-    nk = k.shape[0]
-    k_wts/=(2*np.pi)
-
-    dz,sigma,mu,rho,isrc,irec = structure.with_interfaces(source.dep,stations.depth)
-    assert irec<isrc,"Receivers must be above source"
-
-    # Set up Bessel function arrays
-    mm = np.arange(-2,3)
-    jv = spec.jv(np.tile(mm,nr*nk),np.outer(k,stations.rr).repeat(5)).reshape(nk,nr,5)
-    jvp = spec.jvp(np.tile(mm,nr*nk),np.outer(k,stations.rr).repeat(5)).reshape(nk,nr,5)
-    if do_derivatives:
-        if derivatives.moment_tensor:
-            d_Mxyz = np.array([[[1,0,0],[0,0,0],[0,0,0]],[[0,0,0],[0,1,0],[0,0,0]],[[0,0,0],[0,0,0],[0,0,1]],
-                              [[0,1,0],[1,0,0],[0,0,0]],[[0,0,1],[0,0,0],[1,0,0]],[[0,0,0],[0,0,1],[0,1,0]]],dtype='float64')
-        if derivatives.force:
-            d_F = np.array([[[1],[0],[0]],[[0],[1],[0]],[[0],[0],[1]]],dtype='float64')
-        if derivatives.r:
-            djvp_dr = spec.jvp(np.tile(mm,nr*nk),np.outer(k,stations.rr).repeat(5),2).reshape(nk,nr,5)*k.reshape(-1,1,1)
-    # Allocate output data arrays
-    if type(stations) is RegularlyDistributedReceivers:
-        spectra = np.zeros([nsources,stations.nr,stations.nphi,3,nomegas],dtype='complex128')
-        if do_derivatives: d_spectra = np.zeros([nsources,stations.nr,stations.nphi,derivatives.nderivs,3,nomegas],dtype='complex128')
-        ss = slice(None)
-        es1 = 'k,ksm,krm,mp->srp'
-        es1d = 'k,ksdm,krm,mp->srpd'
-        es2 = 'm,ksm,krm,r,k,mp->srp'
-        es2d = 'm,ksdm,krm,r,k,mp->srpd'
-        es3 = 'k,ksm,krm,m,mp->srp'
-    elif type(stations) is ListOfReceivers:
-        spectra = np.zeros([nsources,stations.nr,1,3,nomegas],dtype='complex128')
-        if do_derivatives: d_spectra = np.zeros([nsources,stations.nr,1,derivatives.nderivs,3,nomegas],dtype='complex128')
-        ss = 0
-        es1 = 'k,ksm,krm,mr->sr'
-        es1d = 'k,ksdm,krm,mr->srd'
-        es2 = 'm,ksm,krm,r,k,mr->sr'
-        es2d = 'm,ksdm,krm,r,k,mr->srd'
-        es3 = 'k,ksm,krm,m,mr->sr'
-    else:
-        raise NotImplementedError("Unrecognised receiver object, type: %s"%(type(stations)))
-
-
-    if show_progress: t = tqdm.tqdm(total = nomegas)
-
-    plan_1 = False
-    plan_1d = False
-    plan_2 = False
-    plan_2d = False
-    plan_3 = False
-    determine_optimal_plan=True
-
-    eimphi = np.exp(np.outer(1j*mm,stations.pp))
-    for iom,omega in enumerate(omegas):
-        H_psv,H_sh = compute_H_matrices(k[k!=0],omega,dz,sigma,mu,rho,isrc,irec)
-
-        b = np.zeros([nk,nsources,6,5],dtype='complex128')
-        for i in range(nsources):
-            s_psv,s_sh = sourceVector(source.Mxyz[i,:,:],source.F[i,:,0],k[k!=0],sigma[isrc],mu[isrc])
-            b[k!=0,i,:4,:] = (H_psv@s_psv).value
-            b[k!=0,i,4:,:] = (H_sh@s_sh).value
-        if do_derivatives:
-            d_b = np.zeros([nk,nsources,derivatives.nderivs,6,5],dtype='complex128')
-            if derivatives.moment_tensor:
-                j0 = derivatives.i_mt
-                for j in range(6):
-                    #print(j)
-                    s_psv,s_sh = sourceVector(d_Mxyz[j,:,:],np.zeros([3]),k[k!=0],sigma[isrc],mu[isrc])
-                    for i in range(nsources):
-                        d_b[k!=0,i,j0+j,:4,:] = (H_psv@s_psv).value
-                        d_b[k!=0,i,j0+j,4:,:] = (H_sh@s_sh).value
-            if derivatives.force:
-                j0 = derivatives.i_f
-                for j in range(3):
-                    s_psv,s_sh = sourceVector(np.zeros(3,3),d_F[j,:,0],k[k!=0],sigma[isrc],mu[isrc])
-                    for i in range(nsources):
-                        d_b[k!=0,i,j0+j,:4,:] = (H_psv@s_psv).value
-                        d_b[k!=0,i,j0+j,4:,:] = (H_sh@s_sh).value
-            if derivatives.depth:
-                j0 = derivatives.i_dep
-                for i in range(nsources):
-                    s_psv,s_sh = sourceVector_ddep(source.Mxyz[i,:,:],source.F[i,:,0],omega,k[k!=0],sigma[isrc],mu[isrc],rho[isrc])
-                    d_b[k!=0,i,j0,:4,:] = (H_psv@s_psv).value
-                    d_b[k!=0,i,j0,4:,:] = (H_sh@s_sh).value
-        del H_psv,H_sh,s_psv,s_sh
-        if determine_optimal_plan and iom==0:
-            # First time through, determine optimal contraction schemes
-            plan_1,_ = np.einsum_path(es1,k*k_wts,b[:,:,1,:],jvp,eimphi)
-            plan_2,_ = np.einsum_path(es2,1j*mm,b[:,:,4,:],jv,rr_inv,k_wts,eimphi)
-            plan_3,_ = np.einsum_path(es3,k*k_wts,b[:,:,1,:],jvp,1j*mm,eimphi)
-            if do_derivatives:
-                if derivatives.moment_tensor or derivatives.force:
-                    plan_1d,_ = np.einsum_path(es1d,k*k_wts,d_b[:,:,0:6,1,:],jvp,eimphi)
-                    plan_2d,_ = np.einsum_path(es2d,1j*mm,d_b[:,:,0:6,4,:],jv,rr_inv,k_wts,eimphi)
-        spectra[:,:,ss,0,iom] = np.einsum(es1,k*k_wts,b[:,:,1,:],jvp,eimphi,optimize=plan_1)+ \
-                        np.einsum(es2,1j*mm,b[:,:,4,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)
-        spectra[:,:,ss,1,iom] = np.einsum(es2,1j*mm,b[:,:,1,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)-\
-                        np.einsum(es1,k*k_wts,b[:,:,4,:],jvp,eimphi,optimize=plan_1)
-        spectra[:,:,ss,2,iom] = np.einsum(es1,k*k_wts,b[:,:,0,:],jv,eimphi,optimize=plan_1)
-        if do_derivatives:
-            if derivatives.moment_tensor:
-                j0 = derivatives.i_mt
-                d_spectra[:,:,ss,j0:j0+6,0,iom] = np.einsum(es1d,k*k_wts,d_b[:,:,j0:j0+6,1,:],jvp,eimphi,optimize=plan_1d)+ \
-                                np.einsum(es2d,1j*mm,d_b[:,:,j0:j0+6,4,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2d)
-                d_spectra[:,:,ss,j0:j0+6,1,iom] = np.einsum(es2d,1j*mm,d_b[:,:,j0:j0+6,1,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2d)-\
-                                np.einsum(es1d,k*k_wts,d_b[:,:,j0:j0+6,4,:],jvp,eimphi,optimize=plan_1d)
-                d_spectra[:,:,ss,j0:j0+6,2,iom] = np.einsum(es1d,k*k_wts,d_b[:,:,j0:j0+6,0,:],jv,eimphi,optimize=plan_1d)
-            if derivatives.force:
-                j0 = derivatives.i_f
-                d_spectra[:,:,ss,j0:j0+3,0,iom] = np.einsum(es1d,k*k_wts,d_b[:,:,j0:j0+3,1,:],jvp,eimphi,optimize=plan_1d)+ \
-                                np.einsum(es2d,1j*mm,d_b[:,:,j0:j0+3,4,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2d)
-                d_spectra[:,:,ss,j0:j0+3,1,iom] = np.einsum(es2d,1j*mm,d_b[:,:,j0:j0+3,1,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2d)-\
-                                np.einsum(es1d,k*k_wts,d_b[:,:,j0:j0+3,4,:],jvp,eimphi,optimize=plan_1d)
-                d_spectra[:,:,ss,j0:j0+3,2,iom] = np.einsum(es1d,k*k_wts,d_b[:,:,j0:j0+3,0,:],jv,eimphi,optimize=plan_1d)
-            if derivatives.r:
-                j0 = derivatives.i_r
-                d_spectra[:,:,ss,j0,0,iom] = np.einsum(es1,k*k_wts,b[:,:,1,:],djvp_dr,eimphi,optimize=plan_1) - \
-                                        np.einsum(es2,1j*mm,b[:,:,4,:],jv,rr_inv**2,k_wts,eimphi,optimize=plan_2) +\
-                                        np.einsum(es2,1j*mm,b[:,:,4,:],jvp,rr_inv,k*k_wts,eimphi,optimize=plan_2)
-                d_spectra[:,:,ss,j0,1,iom] = np.einsum(es2,-1j*mm,b[:,:,1,:],jv,rr_inv**2,k_wts,eimphi,optimize=plan_2) +\
-                                        np.einsum(es2,1j*mm,b[:,:,1,:],jvp,rr_inv,k*k_wts,eimphi,optimize=plan_2) -\
-                                        np.einsum(es1,k*k_wts,b[:,:,4,:],djvp_dr,eimphi,optimize=plan_1)
-                d_spectra[:,:,ss,j0,2,iom] = np.einsum(es1,k*k*k_wts,b[:,:,0,:],jvp,eimphi,optimize=plan_1)
-            if derivatives.phi:
-                j0 = derivatives.i_phi
-                d_spectra[:,:,ss,j0,0,iom] = np.einsum(es3,k*k_wts,b[:,:,1,:],jvp,1j*mm,eimphi,optimize=plan_3)+ \
-                                np.einsum(es2,-mm*mm,b[:,:,4,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)
-                d_spectra[:,:,ss,j0,1,iom] = np.einsum(es2,mm*mm,b[:,:,1,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)-\
-                                np.einsum(es3,k*k_wts,b[:,:,4,:],jvp,-1j*mm,eimphi,optimize=plan_3)
-                d_spectra[:,:,ss,j0,2,iom] = np.einsum(es3,k*k_wts,b[:,:,0,:],jv,-1j*mm,eimphi,optimize=plan_3)
-            if derivatives.depth:
-                j0 = derivatives.i_dep
-                d_spectra[:,:,ss,j0,0,iom] = np.einsum(es1,k*k_wts,d_b[:,:,j0,1,:],jvp,eimphi,optimize=plan_1)+ \
-                                np.einsum(es2,1j*mm,d_b[:,:,j0,4,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)
-                d_spectra[:,:,ss,j0,1,iom] = np.einsum(es2,1j*mm,d_b[:,:,j0,1,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)-\
-                                np.einsum(es1,k*k_wts,d_b[:,:,j0,4,:],jvp,eimphi,optimize=plan_1)
-                d_spectra[:,:,ss,j0,2,iom] = np.einsum(es1,k*k_wts,d_b[:,:,j0,0,:],jv,eimphi,optimize=plan_1)
-            if derivatives.time:
-                j0 = derivatives.i_time
-                d_spectra[:,:,ss,j0,:,iom] = -1j*omega*spectra[:,:,ss,:,iom]
-        if show_progress: t.update(1)
-    if show_progress:t.close()
-    if do_derivatives:
-        return spectra.squeeze(),d_spectra.squeeze()
-    else:
-        return spectra.squeeze()
-
-
-
-def compute_H_matrices(k,omega,dz,sigma,mu,rho,isrc,irec):
-    nlayers = dz.shape[0]
-    # Propagate surface b/c to receiver
-    if mu[0] == 0:
-        surface_bc_sh = oceanFloorBoundary(dz[0],omega,k,sigma[0],rho[0],True)
-        surface_bc_psv = oceanFloorBoundary(dz[0],omega,k,sigma[0],rho[0],False)
-        ibc = 1
-    else:
-        surface_bc_sh = freeSurfaceBoundary(k.shape[0],True)
-        surface_bc_psv = freeSurfaceBoundary(k.shape[0],False)
-        ibc = 0
-    for i in range(ibc,irec):
-        surface_bc_sh, _, surface_bc_psv = propagate(omega,k,-dz[i],sigma[i],mu[i],rho[i],m2=surface_bc_sh,m6=surface_bc_psv)
-    # Propagate basal b/c to source depth
-    basal_bc_sh = underlyingHalfspaceBoundary(omega,k,sigma[-1],mu[-1],rho[-1],True)
-    basal_bc_psv = underlyingHalfspaceBoundary(omega,k,sigma[-1],mu[-1],rho[-1],False)
-    for i in range(nlayers-2,isrc-1,-1):
-        #print(i,dz[i],sigma[i],mu[i],rho[i])
-        basal_bc_sh,_,basal_bc_psv = propagate(omega,k,dz[i],sigma[i],mu[i],rho[i],m2=basal_bc_sh,m6=basal_bc_psv)
-    basal_bc_sh_at_src = basal_bc_sh.copy()
-    # basal_bc_psv_at_src = basal_bc_psv.copy()
-    # Create N and continue to propagate everything up to receiver
-    N = makeN(basal_bc_psv)
-    for i in range(isrc-1,irec-1,-1):
-        basal_bc_sh,N,basal_bc_psv = propagate(omega,k,dz[i],sigma[i],mu[i],rho[i],m2=basal_bc_sh,m4=N,m6=basal_bc_psv)
-    # Now assemble H
-    H_psv = (makeN(surface_bc_psv) @ N)/makeDelta(surface_bc_psv,basal_bc_psv)
-    H_sh = np.zeros([k.shape[0],2,2],dtype='complex128')
-    H_sh[:,0,0] = surface_bc_sh.M[:,0,0]*basal_bc_sh_at_src.M[:,1,0]
-    H_sh[:,0,1] = - surface_bc_sh.M[:,0,0]*basal_bc_sh_at_src.M[:,0,0]
-    H_sh[:,1,0] = surface_bc_sh.M[:,1,0]*basal_bc_sh_at_src.M[:,1,0]
-    H_sh[:,1,1] = -surface_bc_sh.M[:,1,0]*basal_bc_sh_at_src.M[:,0,0]
-    H_sh = scm.ScaledMatrixStack(H_sh,surface_bc_sh.scale+basal_bc_sh_at_src.scale)/makeDelta(surface_bc_sh,basal_bc_sh,sh=True)
-    return H_psv,H_sh
-
-
-def makeMomentTensor(strike,dip,rake,M0,eta,xtr):
-    strike_r = np.deg2rad(strike)
-    dip_r = np.deg2rad(dip)
-    rake_r = np.deg2rad(rake)
-    sv = np.array([0.,-np.cos(strike_r),np.sin(strike_r)])
-    d = np.array([-np.sin(dip_r),np.cos(dip_r)*np.sin(strike_r),np.cos(dip_r)*np.cos(strike_r)])
-    n = np.array([np.cos(dip_r),np.sin(dip_r)*np.sin(strike_r),np.sin(dip_r)*np.cos(strike_r)])
-    e = sv*np.cos(rake_r) - d*np.sin(rake_r)
-    b = np.cross(e,n)
-    t = (e+n)/np.sqrt(2)
-    p = (e-n)/np.sqrt(2)
-    ev = M0 * np.array([-1-0.5*eta+0.5*xtr,eta,1-0.5*eta+0.5*xtr])
-    fmom = np.zeros(6)
-    fmom[:3] = ev[0]*p**2 + ev[1]*b**2+ev[2]*t**2
-    fmom[3] = ev[0]*p[0]*p[1] + ev[1]*b[0]*b[1]+ev[2]*t[0]*t[1]
-    fmom[4] = ev[0]*p[0]*p[2] + ev[1]*b[0]*b[2]+ev[2]*t[0]*t[2]
-    fmom[5] = ev[0]*p[1]*p[2] + ev[1]*b[1]*b[2]+ev[2]*t[1]*t[2]
-    M = np.array([[fmom[0],fmom[3],fmom[4]],
-                       [fmom[3],fmom[1],fmom[5]],
-                       [fmom[4],fmom[5],fmom[2]]])
-    return M
-
-def rtf2xyz(M):
-    M2 = np.zeros_like(M)
-    M2[0:2,0:2] = M[1:3,1:3]
-    M2[0:2,2] = M[0,1:3]
-    M2[2,0:2] = M[1:3,0]
-    M2[2,2] = M[0,0]
-    return M2
-def clp(w,w0,w1):
-    if np.real(w)<w0:
-        return 1.
-    elif np.real(w)<w1:
-        return 0.5*(1+np.cos(np.pi*(w-w0)/(w1-w0)))
-    else:
-        return 0
-
-def compute_seismograms(structure, source, stations, nt,dt,alpha,
-                        source_time_function=None,pad_frac=0.25,kind ='displacement',
-                        return_spectra = False,derivatives=None,show_progress = True,**kwargs):
-    npad = int(pad_frac*nt)
-    tt = np.arange(nt+npad)*dt
-    ww = 2*np.pi*np.fft.rfftfreq(nt+npad,dt)
-    delta_omega = ww[1]
-    ww=ww-alpha*1j
-    if derivatives is None:
-        do_derivatives = False
-    else:
-        if derivatives.nderivs == 0:
-            # Nothing actually turned on...
-            do_derivatives = False
-        else:
-            do_derivatives = True
-
-    spectra = compute_spectra(structure,source,stations,ww,derivatives,show_progress,**kwargs)
-    if do_derivatives:
-        spectra,d_spectra = spectra
-
-    spec_shape = spectra.shape
-    spec_shape_n = len(spec_shape)
-    if kind == 'displacement':
-        spectra /= 1j*ww.reshape((spec_shape_n-1)*[1]+[-1])
-        if do_derivatives:d_spectra /= 1j*ww.reshape((spec_shape_n)*[1]+[-1])
-    elif kind == 'velocity':
-        pass
-    elif kind == 'acceleration':
-        spectra *= 1j*ww.reshape((spec_shape_n-1)*[1]+[-1])
-        if do_derivatives:d_spectra *= 1j*ww.reshape((spec_shape_n)*[1]+[-1])
-    else:
-        raise ValueError("Unrecognised seismogram kind '%s'; should be one of 'displacement', 'velocity' or 'acceleration'."%kind)
-    if source_time_function is not None:
-        stf = np.zeros(ww.shape[0],dtype='complex128')
-        for i,w in enumerate(ww):
-            stf[i] = source_time_function(w)
-        spectra *= stf.reshape((spec_shape_n-1)*[1]+[-1])
-        if do_derivatives: d_spectra *= stf.reshape((spec_shape_n)*[1]+[-1])
-    # Inverse FFT
-    seis = (nt+npad)*delta_omega*np.fft.irfft(spectra)/(2*np.pi)
-    # Discard 'padding' and scale by exp(alpha t)
-    seis = seis[tuple((spec_shape_n-1)*[slice(None)]+[slice(None,nt)])]*np.exp(alpha*tt[:nt]).reshape((spec_shape_n-1)*[1]+[-1])
-    if do_derivatives:
-        deriv = (nt+npad)*delta_omega*np.fft.irfft(d_spectra)/(2*np.pi)
-        deriv = deriv[tuple((spec_shape_n)*[slice(None)]+[slice(None,nt)])]*np.exp(alpha*tt[:nt]).reshape((spec_shape_n)*[1]+[-1])
-    if return_spectra:
-        if do_derivatives:
-            return tt[:nt],seis,deriv,ww,spectra
-        else:
-            return tt[:nt],seis,ww,spectra
-    else:
-        if do_derivatives:
-            return tt[:nt],seis,deriv
-        else:
-            return tt[:nt],seis
-
-class DerivativeSwitches:
-    def __init__(self,moment_tensor = False, force = False,
-                      r = False, phi = False, depth = False, time = False):
-        self.moment_tensor = moment_tensor
-        self.force = force
-        self.r = r
-        self.phi = phi
-        self.depth = depth
-        self.time = time
-    @property
-    def nderivs(self):
-        n = 0
-        if self.moment_tensor: n+=6
-        if self.force: n+=3
-        if self.r: n+=1
-        if self.phi: n+=1
-        if self.depth: n+=1
-        if self.time: n +=1
-        return n
-    @property
-    def i_mt(self):
-        if not self.moment_tensor: return None
-        i = 0
-        return i
-    @property
-    def i_f(self):
-        if not self.force: return None
-        i=0
-        if self.moment_tensor: i+=6
-        return i
-    @property
-    def i_r(self):
-        if not self.r: return None
-        i=0
-        if self.moment_tensor: i+=6
-        if self.force: i+=3
-        return i
-    @property
-    def i_phi(self):
-        if not self.phi: return None
-        i=0
-        if self.moment_tensor: i+=6
-        if self.force: i+=3
-        if self.r: i+=1
-        return i
-    @property
-    def i_dep(self):
-        if not self.depth: return None
-        i=0
-        if self.moment_tensor: i+=6
-        if self.force: i+=3
-        if self.r: i+=1
-        if self.phi: i+=1
-        return i
-    @property
-    def i_time(self):
-        if not self.time: return None
-        i=0
-        if self.moment_tensor: i+=6
-        if self.force: i+=3
-        if self.r: i+=1
-        if self.phi: i+=1
-        if self.depth: i+=1
-        return i
-
-
-stations = RegularlyDistributedReceivers(10,150,5,0,360,8,depth=3)
-model = LayeredStructureModel([(3.,1.8,0.,1.02),(2.,4.5,2.4,2.57),(5.,5.8,3.3,2.63),(20.,6.5,3.65,2.85),(np.inf,8.,4.56,3.34)])
-source = PointSource(0,0,20,rtf2xyz(makeMomentTensor(340,90,0,2.4E8,0,0)),np.zeros([3,1]),0)
