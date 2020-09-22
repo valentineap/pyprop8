@@ -2,13 +2,21 @@
 
 This package implements the seismogram calculation algorithm set out in [O'Toole & Woodhouse (2011)](https://doi.org/10.1111/j.1365-246X.2011.05210.x), together with the source derivatives set out in [O'Toole, Valentine & Woodhouse (2012)](https://doi.org/10.1111/j.1365-246X.2012.05608.x).
 
+## Contents
+- [Introduction](#introduction)
+- [Getting started](#getting-started)
+  - [Specifying earth models](#specifying-earth-models)
+  - [Specifying sources](#specifying-sources)
+  - [Specifying receivers](#specifying-receivers)
+
+## Introduction
 Specifically, the algorithm enables:
 
 - Computation of the seismic response of a plane-layered elastic half-space
 - Due to a buried point source (moment-tensor or force representation)
 - Stable at zero-frequency (allowing straightforward calculation of the static  deformation attributable to the event)
 
-It is based on a Thompson-Haskell propagator matrix method, using a minor vector formalism to ensure numerial stability for the P-SV system.
+It is based on a Thompson-Haskell propagator matrix method, using a minor vector formalism to ensure numerical stability for the P-SV system.
 
 The current package represents a complete re-implementation of the original Fortran code developed by Woodhouse and O'Toole, which is not readily available. It is designed to use array operations to compute seismograms for many receivers simultaneously. This enables rapid calculations, at the expense of memory consumption. If memory is limited, it is straightforward to divide receivers into subsets, and perform calculations for each subset separately.
 
@@ -69,3 +77,22 @@ m3 = pp.LayeredStructureModel(model_array,interface_depth_form = False)
 A visual representation of the layers and their properties can be obtained by calling `print()` on any instance of `LayeredStructureModel`, and may be useful for verifying that everything is as intended.
 
 ### Specifying sources
+
+A seismic source is represented as an instance of `PointSource`, and both moment tensor and force vector representations are supported. The moment tensor is expressed relative to a Cartesian coordinate system (x,y,z). If using catalogue source parameters, these are likely to be expressed in a spherical coordinate system (r,theta,phi); a conversion function is provided as `pyprop8.utils.rtf2xyz()`. In addition, a routine to generate moment tensors from (strike,dip,rake,moment) is available, `pyprop8.utils.make_moment_tensor()`.
+
+Once the moment tensor and force vector have been obtained, creating the `PointSource` object is straightforward:
+```python
+Mxyz = np.array([3,3])
+Mxyz[:,:] = ...
+F = np.array([3,1])
+F[:,0] = ...
+source = pp.PointSource(event_latitude, event_longitude, event_depth,
+                        Mxyz, F, event_time)
+```
+Note that the moment tensor and force vector here are deemed to act *simultaneously*. In most circumstances you probably want one of these to be set to `np.zeros(...)`.
+
+If one wishes to evaluate seismograms for multiple distinct moment tensors/force vectors *at a single location*, the arrays `Mxyz` and `F` can be specified with shapes `(nsources,3,3)` and `(nsources,3,1)` respectively. In this case, `Mxyz[i,:,:]` acts simultaneously with `F[i,:,:]`. If multiple sources at distinct locations are required, it will be necessary to create separate `PointSource` objects for each.
+
+### Specifying receivers
+
+Two different paradigms can be used for specifying receiver locations. If one wishes to obtain a comprehensive sampling of the seismic wavefield (e.g. for visualisation purposes), `RegularlyDistributedReceivers` provides a set of receivers distributed on a regular grid in polar coordinates (i.e. at equally spaced radii and azimuths). `pyprop8` is then able to exploit this regularity to accelerate computations. Alternatively, if one wishes to sample the wavefield at specific arbitrary locations (e.g. those corresponding to available observations), `ListOfReceivers` should be used.
