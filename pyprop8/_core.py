@@ -16,6 +16,24 @@ class PointSource:
     will be performed for each separately.
     '''
     def __init__(self,lat,lon,dep,Mxyz,F,time):
+        '''
+        Create a point source object.
+        Inputs:
+        lat,lon,dep - float: spatial location of point source
+        Mxyz - ndarray, shape (3x3) or shape (nsources x 3x3): moment tensor(s)
+            expressed in a Cartesian (z-up) system. See `utils.rtf2xyz()` for a
+            routine to convert moment tensors expressed relative to a spherical
+            coordinate system. If multiple moment tensors are provided (i.e. if
+            nsources>1), each will be processed separately.
+        F - ndarray, shape (3x1) or shape (nsources x 3x1): force vector(s)
+            expressed in a Cartesian (z-up) system. Note that nsources for F
+            must match that for Mxyz. If multiple forces are provided each will
+            be processed separately. However, M[i,:,:] and F[i,:,:] are assumed
+            to act simultaneously, i.e. for a 'pure' moment tensor source the
+            corresponding components of F should be set to zero, and vice versa.
+        time - datetime.datetime: the instant of rupture.
+
+        '''
         self.lat = lat
         self.lon = lon
         self.dep = dep
@@ -35,6 +53,7 @@ class PointSource:
         else:
             raise ValueError("Moment tensor should be (Nx)3x3")
     def copy(self):
+        '''Return a duplicate of this PointSource object'''
         return PointSource(self.lat,self.lon,self.dep,self.Mxyz,self.F,self.time)
 class LayeredStructureModel:
     '''Class to represent a layered earth model.'''
@@ -203,6 +222,7 @@ class LayeredStructureModel:
 
 
 class ReceiverSet:
+    '''Base class for representing receiver locations'''
     def __init__(self):
         pass
     def validate(self):
@@ -216,7 +236,20 @@ class ReceiverSet:
 
 
 class RegularlyDistributedReceivers(ReceiverSet):
+    '''
+    A set of receivers distributed regularly in polar coordinates: receivers
+    lie on a set of equi-distant concentric circles centred on the origin, and
+    at equally-distributed azimuths. With `nr` radii and `nphi` azimuths, there
+    are a total of (nr x nphi) receivers. This regularity enables faster
+    computation and is useful if general characterisation of the wavefield is
+    required.
+    '''
     def __init__(self,*args,**kwargs):
+        '''
+        Create a receiver object. If any arguments are provided, they are passed
+        to the `from_ranges()` function. Otherwise, an 'empty' receiver object
+        is created.
+        '''
         super().__init__()
         if len(args)>0 or len(kwargs)>0: self.from_ranges(*args,**kwargs)
     def from_ranges(self,rmin,rmax,nr,phimin,phimax,nphi,depth = 0, degrees=True):

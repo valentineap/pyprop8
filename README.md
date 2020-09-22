@@ -23,8 +23,49 @@ Nevertheless, it allows reasonably realistic simulation of the seismic wavefield
 
 The present implementation is written solely in Python, and uses only standard libraries (primarily NumPy). As such it is straightforward to deploy and use across a range of platforms, and can easily be incorporated into other Python-based applications.
 
-## Package contents
+## Getting started
 
-- `scaledmatrix.py`: Defines a class implementing an exponentially-scaled matrix type, enabling numerically-stable computations involving very large- and very small-valued matrices.
-- `pyprop8.py`: Core routines to compute seismic response.
-- `visualisations.py`: Generate various visualisations of the seismic wavefield.
+To access core functionality, import `pyprop8` within your Python code. This
+provides access to the following:
+
+- A class for specifying the earth model, `LayeredStructureModel`;
+- A class for specifying the source, `PointSource`;
+- Two classes for specifying receiver locations, `RegularlyDistributedReceivers` and `ListOfReceivers`;
+- A class for specifying which derivatives are sought, `DerivativeSwitches`;
+- Two routines, `compute_spectra()` and `compute_seismograms()`, which perform calculations and return seismic observables in the spectral and time domains, respectively.
+
+In order to generate seismograms, you need to:
+
+1. Specify an earth model;
+2. Specify the source representation;
+3. Specify the receivers at which seismograms are to be 'recorded';
+
+and then call one of the computational routines.
+
+### Specifying earth models
+
+The algorithm underpinning `pyprop8` assumes that an earth model consists of horizontal flat layers, with each layer being homogenous and isotropic. The lowermost layer is assumed to extend to infinite depth. A Cartesian (rather than spherical) geometry is assumed.
+
+From a computational perspective, `pyprop8` represents an earth model using the class `LayeredStructureModel`. Our first task is therefore to create an instance of this class. To do so, we must pass the initialiser a list (or other list-like type, e.g. a NumPy array) specifying the layers. This can be done in two ways:
+
+1. Each entry in the list corresponds to a *layer*, and is a tuple of `(thickness,vp,vs,rho)` where `thickness` is the layer thickness, `vp` and `vs` are P- and S-wave velocities (in units of km/s), and `rho` is a density (in g/cc). The first entry in the list describes the uppermost (i.e., surface) layer; subsequent entries correspond to successively deeper layers. The final entry *must* have thickness `np.inf`, and represents the properties of the underlying halfspace. If using this approach, pass `interface_depth_form=False` to the `LayeredStructureModel` initialiser. (This is also the default if `interface_depth_form` is not explicitly specified.)
+
+2. Each entry in the list corresponds to an *interface*. In this case, the entry is a tuple `(interface_depth,vp,vs,rho)`, with `vp`,`vs` and `rho` describing the seismic properties *below* the interface. The interface depths should all be positive, and specified in units of km. The list does *not* need to be ordered, but *must* contain one entry with an interface depth of '0' (corresponding to the surface). If there is duplication of interface depths within the list, only the first will be retained. The properties associated with the lowermost interface specified are deemed to represent the underlying halfspace. If using this form, pass `interface_depth_form=True` to the `LayeredStructureModel` initialiser.
+
+Thus, in the following, the models `m1`,`m2` and `m3` are all identical:
+```python
+import pyprop8 as pp
+import numpy as np
+
+m1 = pp.LayeredStructureModel([(3,1.8,0,1.02),
+                               (5,4.5,2.4,2.5),
+                               (np.inf,8,4.5,3.0)])
+m2 = pp.LayeredStructureModel([(0,1.8,0,1.02),
+                               (3,4.5,2.4,2.5),
+                               (8,8,4.5,3.0)],interface_depth_form=True)
+model_array = np.array([[3,1.8,0,1.02],[5,4.5,2.4,2.5],[np.inf,8,4.5,3.0]])
+m3 = pp.LayeredStructureModel(model_array,interface_depth_form = False)
+```
+A visual representation of the layers and their properties can be obtained by calling `print()` on any instance of `LayeredStructureModel`, and may be useful for verifying that everything is as intended.
+
+### Specifying sources
