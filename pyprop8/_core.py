@@ -259,8 +259,8 @@ class RegularlyDistributedReceivers(ReceiverSet):
         self.pp = np.linspace(phimin,phimax,nphi)
         self.depth = depth
         if degrees: self.pp = np.deg2rad(self.pp)
-    def as_xy(self):
-        return np.outer(self.rr,np.cos(self.pp)),np.outer(self.rr,np.sin(self.pp))
+    def as_xy(self,x0=0,y0=0):
+        return x0+np.outer(self.rr,np.cos(self.pp)),y0+np.outer(self.rr,np.sin(self.pp))
     def copy(self):
         other = RegularlyDistributedReceivers()
         other.nr = self.nr
@@ -805,6 +805,143 @@ def exphyp(x):
     t = np.exp(-2*sgn*a)
     return 0.5*np.cos(b)*(1+t)+0.5j*np.sin(b)*sgn*(1-t),0.5*np.cos(b)*sgn*(1-t)+0.5j*np.sin(b)*(1+t),sgn*a
 
+
+def propagate_zerofreq(k,dz,sigma,mu,rho,m2=None,m4=None,m6=None,inplace=True):
+    nk = k.shape[0]
+    c,s,scale = exphyp(dz*k)
+    # Terms that don't change under h->-h
+    if m2 is not None:
+        M = np.zeros((nk,2,2),dtype='complex128')
+        M[:,0,0] = c
+        M[:,0,1] = s/(mu*k)
+        M[:,1,0] = mu*k*s
+        M[:,1,1] = c
+        if inplace:
+            out = m2
+        else:
+            out = None
+        m2r = scm.ScaledMatrixStack(M,scale.copy()).matmul(m2,out=out)
+        del M
+    else:
+        m2r = None
+    if m4 is not None:
+        exphap = np.zeros([nk,4,4],dtype='complex128')
+        exphap[:,0,0] = c
+        exphap[:,0,1] = dz*s*rho*(sigma-mu)/(2*sigma*mu)
+        exphap[:,0,2] = rho*(c*dz*k*(mu-sigma)+s*(mu+sigma))/(2*k*mu*sigma)
+        exphap[:,0,3] = -s
+        exphap[:,1,1] = c
+        exphap[:,1,2] = -s
+        exphap[:,2,1] = -s
+        exphap[:,2,2] = c
+        exphap[:,3,0] = -s
+        exphap[:,3,1] = rho*(c*dz*k*(mu-sigma)-s*(mu+sigma))/(2*k*mu*sigma)
+        exphap[:,3,2] = dz*s*rho*(sigma-mu)/(2*sigma*mu)
+        exphap[:,3,3] = c
+        M = scm.ScaledMatrixStack(exphap,scale.copy())
+        del exphap
+        Z = np.zeros([nk,4,4],dtype='complex128')
+        rtrho = np.sqrt(rho)
+        Z[:,0,0] = 1/rtrho
+        Z[:,1,3] = -1/rtrho
+        Z[:,2,2] = rtrho
+        Z[:,2,3] = -2*k*mu/rtrho
+        Z[:,3,0] = 2*k*mu/rtrho
+        Z[:,3,1] = rtrho
+        iZ = np.zeros([nk,4,4],dtype='complex128')
+        iZ[:,0,0] = rtrho
+        iZ[:,1,0] = -2*k*mu/rtrho
+        iZ[:,1,3] = 1/rtrho
+        iZ[:,2,1] = -2*k*mu/rtrho
+        iZ[:,2,2] = 1/rtrho
+        iZ[:,3,1] = -rtrho
+        if inplace:
+            out = m4
+        else:
+            out = None
+        m4r = scm.ScaledMatrixStack(Z).matmul(M.matmul(scm.ScaledMatrixStack(iZ).matmul(m4,out=out),out=out),out=out)
+        del Z,iZ,M
+    else:
+        m4r = None
+    if m6 is not None:
+        exphap = np.zeros([nk,6,6],dtype='complex128')
+        exphap[:,0,0] = c**2
+        exphap[:,0,1] = -c*s
+        exphap[:,0,3] = -rho*c*s*(mu+sigma)
+        exphap[:,0,4] = c*s
+        exphap[:,0,5] = -s**2
+
+        exphap[:,1,0] = -c*s
+        exphap[:,1,1] = c**2
+        exphap[:,1,3] = s**2*rho*(mu+sigma)
+        exphap[:,1,4] = -s**2
+        exphap[:,1,5] = c*s
+
+        exphap[:,2,0] = -rho*c*s*(mu+sigma)
+        exphap[:,2,1] = s**2*rho*(mu+sigma)
+        exphap[:,2,3] =(s*rho*(mu+sigma))**2
+        exphap[:,2,4] = -s**2*rho*(mu+sigma)
+        exphap[:,2,5] = rho*c*s*(mu+sigma)
+
+        exphap[:,4,0] = c*s
+        exphap[:,4,1] = -s**2
+        exphap[:,4,3] = -s**2*rho*(mu+sigma)
+        exphap[:,4,4] = c**2
+        exphap[:,4,5] = -c*s
+
+        exphap[:,5,0] = -s**2
+        exphap[:,5,1] = c*s
+        exphap[:,5,3] = rho*c*s*(mu+sigma)
+        exphap[:,5,4] = -c*s
+        exphap[:,5,5] = c**2
+
+        exphap_noscale = np.zeros([nk,6,6],dtype='complex128')
+        exphap_noscale[:,0,3] = -rho*dz*k*(mu-sigma)
+        exphap_noscale[:,2,0] = rho*dz*k*(mu-sigma)
+        exphap_noscale[:,2,2] = 2*k*mu*sigma
+        exphap_noscale[:,2,3] = -(rho*dz*k*(mu-sigma))**2
+        exphap_noscale[:,2,5] = rho*dz*k*(mu-sigma)
+        exphap_noscale[:,3,3]= 2*k*mu*sigma
+        exphap_noscale[:,5,3] = -rho*dz*k*(mu-sigma)
+        M = scm.ScaledMatrixStack(exphap,2*scale.copy()) + scm.ScaledMatrixStack(exphap_noscale)
+
+        Z = np.zeros([nk,6,6],dtype='complex128')
+        Z[:,0,2] = -1/(2*k*mu*rho*sigma)
+        Z[:,1,1] = 1
+        Z[:,1,2] = -1/(rho*sigma)
+        Z[:,2,0] = 1
+        Z[:,3,5] = 1
+        Z[:,4,2] = 1/(rho*sigma)
+        Z[:,4,4] = 1
+        Z[:,5,1] = -2*k*mu
+        Z[:,5,2] = 2*k*mu/(rho*sigma)
+        Z[:,5,3] = -rho
+        Z[:,5,4] = 2*k*mu
+
+        iZ = np.zeros([nk,6,6],dtype='complex128')
+        iZ[:,0,2] = 1
+        iZ[:,1,0] = -2*k*mu
+        iZ[:,1,1] = 1
+        iZ[:,2,0] = -rho
+        iZ[:,3,0] = 2*(mu*k)/(rho*sigma)
+        iZ[:,3,1] = -1/(rho*sigma)
+        iZ[:,3,4] = 1/(rho*sigma)
+        iZ[:,3,5] = -1/(2*k*mu*rho*sigma)
+        iZ[:,4,0] = 2*k*mu
+        iZ[:,4,4] = 1
+        iZ[:,5,3] = 1
+
+        if inplace:
+            out = m6
+        else:
+            out = None
+        m6r = scm.ScaledMatrixStack(Z).matmul(M.matmul(scm.ScaledMatrixStack(iZ).matmul(m6,out=out),out=out),out=out)
+    else:
+        m6r = None
+    return m2r,m4r,m6r
+
+
+
 def propagate_general(omega,k,dz,sigma,mu,rho,m2=None,m4=None,m6=None,inplace=True):
     # Propagate the systems in m2/m4/m6 through layer.
     nk = k.shape[0]
@@ -1010,7 +1147,10 @@ def propagate(omega,k,dz,sigma,mu,rho,m2=None,m4=None,m6=None,inplace=True):
     m6[ksel] = 0
 
     ksel = k>0
-    m2[ksel],m4[ksel],m6[ksel] = propagate_general(omega,k[ksel],dz,sigma,mu,rho,m2[ksel],m4[ksel],m6[ksel],True)
+    if omega == 0:
+        m2[ksel],m4[ksel],m6[ksel] = propagate_zerofreq(k[ksel],dz,sigma,mu,rho,m2[ksel],m4[ksel],m6[ksel],True)
+    else:
+        m2[ksel],m4[ksel],m6[ksel] = propagate_general(omega,k[ksel],dz,sigma,mu,rho,m2[ksel],m4[ksel],m6[ksel],True)
     # Hide the evidence...
     if type(m2) is IndexableNone: m2 = None
     if type(m4) is IndexableNone: m4 = None
