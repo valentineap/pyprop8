@@ -942,15 +942,13 @@ def propagate_zerofreq(k,dz,sigma,mu,rho,m2=None,m4=None,m6=None,inplace=True):
 
 
 
-def propagate_general(omega,k,dz,sigma,mu,rho,m2=None,m4=None,m6=None,inplace=True):
+def propagate(omega,k,dz,sigma,mu,rho,m2=None,m4=None,m6=None,inplace=True):
     # Propagate the systems in m2/m4/m6 through layer.
+    if np.any(k==0):
+        raise ValueError("propagate does not handle k==0.")
+    if omega == 0: # Special handler for zero-frequency system
+        return propagate_zerofreq(k,dz,sigma,mu,rho,m2,m4,m6,inplace)
     nk = k.shape[0]
-    # try:
-    #     if omega.shape[0] != nk: raise ValueError('ww should have same dimension as kk')
-    # except AttributeError, IndexError:
-    #     # omega is a float; continue
-    #     pass
-
     if m4 is not None or m6 is not None:
         zsig = np.lib.scimath.sqrt(k**2 - rho*omega**2/sigma)
         csig,ssig,scalesig = exphyp(dz*zsig)
@@ -1123,40 +1121,6 @@ def propagate_general(omega,k,dz,sigma,mu,rho,m2=None,m4=None,m6=None,inplace=Tr
         m6r = None
     return m2r,m4r,m6r
 
-class IndexableNone:
-    '''A do-nothing object that nevertheless can be sliced without raising exceptions'''
-    def __init__(self):
-        pass
-    def __getitem__(self,slice):
-        return None
-    def __setitem__(self,slice,value):
-        pass
-def propagate(omega,k,dz,sigma,mu,rho,m2=None,m4=None,m6=None,inplace=True):
-    if not inplace:
-        if m2 is not None:m2 = m2.copy()
-        if m4 is not None:m4 = m4.copy()
-        if m6 is not None:m6 = m6.copy()
-        # and now we can work 'in place'
-    if m2 is None: m2 = IndexableNone()
-    if m4 is None: m4 = IndexableNone()
-    if m6 is None: m6 = IndexableNone()
-
-    ksel = k==0
-    m2[ksel] = 0.
-    m4[ksel] = 0.
-    m6[ksel] = 0
-
-    ksel = k>0
-    if omega == 0:
-        m2[ksel],m4[ksel],m6[ksel] = propagate_zerofreq(k[ksel],dz,sigma,mu,rho,m2[ksel],m4[ksel],m6[ksel],True)
-    else:
-        m2[ksel],m4[ksel],m6[ksel] = propagate_general(omega,k[ksel],dz,sigma,mu,rho,m2[ksel],m4[ksel],m6[ksel],True)
-    # Hide the evidence...
-    if type(m2) is IndexableNone: m2 = None
-    if type(m4) is IndexableNone: m4 = None
-    if type(m6) is IndexableNone: m6 = None
-    return m2,m4,m6
-    # return propagate_general(omega,k,dz,sigma,mu,rho,m2,m4,m6,inplace)
 def makeN(s):
     m = s.M
     N = np.zeros([s.nStack,4,4],dtype='complex128')
