@@ -122,7 +122,35 @@ Once the model, source and receivers are all set up, it is straightforward to co
 
 #### Spectra
 
-To obtain spectra,
+To obtain spectra, call
+```
+spectra [, dspectra] = compute_spectra(structure, source, stations, omegas, 
+                                       derivatives = None, show_progress = True,
+                                       stencil = kIntegrationStencil, stencil_kwargs = {'kmin':0,'kmax':2.04,'nk':1200},
+                                       squeeze_outputs=True )
+```
+where
+
+- `structure` is an instance of `LayeredStructureModel` ([see above](#specifying-earth-models));
+- `source` is an instance of `PointSource` ([see above](#specifying-sources));
+- `stations` is an instance of either `RegularlyDistributedReceivers` or `ListOfReceivers` ([see above](#specifying-receivers));
+- `omegas` is a (possibly complex) array of shape `(nomegas,)` specifying the frequencies for which spectra should be performed (in units of rad/s);
+- `derivatives` is an instance of `DerivativeSwitches` specifying any derivatives that are sought;
+- `show_progress` is a boolean value; set to `True` to display a progress indicator using `tqdm`;
+- `stencil` is a callable that determines the quadrature scheme used for integration over spatial wavenumber, k. It should have signature `kvals,wts = stencil(**stencil_kwargs)`, where `kvals` is a 1D array containing the k values to be evaluated, and `wts` is a 1D array containing the quadrature weight associated with each evaluation point. By default a trapezium-rule integrator is used;
+- `stencil_kwargs` is a dictionary containing any arguments required by the stencil function;
+- `squeeze_outputs` is a boolean value; set to `True` to call `np.squeeze()` on the spectra before returning, to discard any unnecessary dimensions in the array (i.e, dimensions of length 1).
+
+The function `compute_spectra` returns either one or two arrays, depending on whether derivatives are requested. The first (or only) arary contains all requested spectra. Its shape will depend on how receivers were specified. If an object of class `RegularlyDistributedReceivers` was used, then it has shape `(nsources, nr, nphi, 3, nomegas)`, where:
+
+- `nsources` represents the number of moment tensors/force vectors specified in the `source` object;
+- `nr, nphi` represent the number of radii and azimuths specified in the `stations` object;
+- `3` represents the three spatial dimensions (ordered as 'radial', 'transverse', 'vertical'); and
+- `nomegas` represents the number of frequencies requested.
+
+If, instead, `stations` is of class `ListOfReceivers`, the result will have shape `(nsources, nstations, 3, nomegas)`. Here `nstations` is the number of distinct receivers in the `stations` object, and other dimensions are as described above. Note that if `squeeze_outputs=True`, any 'unnecessary' dimensions will be removed. This is convenient when (say) only one source is employed.
+
+If derivatives are requested, these are contained in the second array returned by `compute_spectra`. This has shape `(nsources, nr, nphi, nderivs, 3, nomegas)` or `(nsources, nstations, nderivs, 3, nomegas)`, where `nderivs` is the number of derivative components requested. The ordering of the derivatives within this array is governed by the `DerivativeSwitches` object. Again, `squeeze_outputs=True` will affect the shape of the array.
 
 #### Time series
 
