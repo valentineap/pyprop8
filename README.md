@@ -19,6 +19,7 @@ It is based on a Thompson-Haskell propagator matrix method, using a minor vector
   - [Computing seismic observables](#computing-seismic-observables)
     - [Spectra](#spectra)
     - [Time series](#time-series)
+    - [Static displacement](#static-displacement)
   - [A minimal example](#a-minimal-example)
 - [Citing this package](#citing-this-package)
 - [Acknowledgements](#acknowledgements)
@@ -118,13 +119,13 @@ For advanced use, both `RegularlyDistributedReceivers` and `ListOfReceivers` can
 It will be noted that in either case, receivers must all lie at a single depth. In the event that multiple receiver depths must be handled, it will be necessary to create multiple receiver objects and call the computational routines on each individually.
 
 ### Computing seismic observables
-Once the model, source and receivers are all set up, it is straightforward to compute seismic observables. Two routines are provided. One, `compute_spectra()`, computes and returns velocity spectra for each receiver. The other, `compute_seismograms()`, acts as a wrapper around `compute_spectra()` to post-process and Fourier-transform the spectra yielding time series at each station. Both routines can optionally also return derivatives of spectra/seismograms with respect to the source parameters.
+Once the model, source and receivers are all set up, it is straightforward to compute seismic observables. Three routines are provided. One, `compute_spectra()`, computes and returns velocity spectra for each receiver. The second, `compute_seismograms()`, acts as a wrapper around `compute_spectra()` to post-process and Fourier-transform the spectra yielding time series at each station. The third, `compute_static()`, is another wrapper that determines the static-offset component of the displacement field at each location, and (optionally) computes the line-of-sight displacement to simulat (e.g.) an InSAR image. All routines can optionally also return derivatives of spectra/seismograms with respect to the source parameters.
 
 #### Spectra
 
-To obtain spectra, call
+To obtain velocity spectra, call
 ```
-spectra [, dspectra] = compute_spectra(structure, source, stations, omegas, 
+spectra [, dspectra] = compute_spectra(structure, source, stations, omegas,
                                        derivatives = None, show_progress = True,
                                        stencil = kIntegrationStencil, stencil_kwargs = {'kmin':0,'kmax':2.04,'nk':1200},
                                        squeeze_outputs=True )
@@ -150,9 +151,33 @@ The function `compute_spectra` returns either one or two arrays, depending on wh
 
 If, instead, `stations` is of class `ListOfReceivers`, the result will have shape `(nsources, nstations, 3, nomegas)`. Here `nstations` is the number of distinct receivers in the `stations` object, and other dimensions are as described above. Note that if `squeeze_outputs=True`, any 'unnecessary' dimensions will be removed. This is convenient when (say) only one source is employed.
 
-If derivatives are requested, these are contained in the second array returned by `compute_spectra`. This has shape `(nsources, nr, nphi, nderivs, 3, nomegas)` or `(nsources, nstations, nderivs, 3, nomegas)`, where `nderivs` is the number of derivative components requested. The ordering of the derivatives within this array is governed by the `DerivativeSwitches` object. Again, `squeeze_outputs=True` will affect the shape of the array.
+If derivatives are requested, these are contained in the second array returned by `compute_spectra`. This has shape `(nsources, nr, nphi, nderivs, 3, nomegas)` or `(nsources, nstations, nderivs, 3, nomegas)`, where `nderivs` is the number of derivative components requested. The ordering of the derivatives within this array is governed by the `DerivativeSwitches` object. Again, `squeeze_outputs=True` will affect the shape of the array. If a `DerivativeSwitches` object is provided, but no derivative components are activated, `compute_spectra` will return `None` in place of `d_spectra`.
 
 #### Time series
+To compute seismograms, call
+```
+tt,seismograms [, d_seismograms] = compute_seismograms(structure, source, stations
+                     nt, dt, alpha,
+                     source_time_function=None,pad_frac=0.25,kind='displacement',
+                     return_spectra = False, derivatives = None,
+                     show_progress = True, **kwargs)
+```
+This is a wrapper around `compute_spectra`. Arguments are as follows:
+- `structure` is an instance of `LayeredStructureModel`.
+- `source` is an instance of `PointSource`.
+- `stations` is an instance of `RegularlyDistributedReceivers` or `ListOfReceivers`.
+- `nt` is the number of time samples in the output time series.
+- `dt` is the time-step for the output time series (i.e., total length will be `dt*(nt-1)`.)
+- `alpha` is a parameter describing how far off the real axis computations should be undertaken. In effect, we calculate `exp(-alpha t).s(t)`, and then 'undo' the exponential scaling before returning `s(t)`. The purpose of this is to avoid singularities on the real axis that are associated with surface wave propagation.
+- `source_time_function` is a callable, `stf(omega)`, taking a single complex-valued argument (a frequency, in units of rad/s), and returning a scalar value (possibly complex). If provided, the seismic spectra are multiplied by this function prior to the inverse Fourier transform being taken. This allows a source time-function (or other filtering operations) to be applied.
+- `pad_frac` is a float representing any additional time series length to be computed and then discarded (to circumvent ringing and other 'edge' effects). This is expressed as a fraction of `nt`, i.e. a time series of length `(1 + pad_frac)*nt` samples is initially computed, but only the first `nt` points are returned.
+- `kind` is a string: permissible values are `displacement`, `velocity` or `acceleration`. This determines the class of observable that is simulated.
+- `return_spectra` is a boolean value; set to True for both seismograms and spectra to be returned; otherwise only seismograms are returned.
+- `derivatives` should be passed a `DerivativeSwitches` object if any derivatives are sought.
+- `show_progress` is a boolean value; set to True for a progress bar to be displayed.
+- Any additional keyword arguments are passed to `compute_spectra()`. 
+#### Static displacement
+
 
 ### A minimal example
 
