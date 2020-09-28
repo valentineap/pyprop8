@@ -385,6 +385,10 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
     if derivatives is not None:
         if derivatives.nderivs > 0:
             do_derivatives = True
+        else:
+            # The user is set up to expect derivatives so we'll give them something
+            # back, but nothing is actually switched on...
+            d_spectra = None
 
 
     nr = stations.nr
@@ -533,16 +537,15 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
         if show_progress: t.update(1)
     if show_progress:
         t.close()
-    if do_derivatives:
-        if squeeze_outputs:
-            return spectra.squeeze(),d_spectra.squeeze()
-        else:
-            return spectra, d_spectra
+    if squeeze_outputs:
+        spectra = spectra.squeeze()
+        if do_derivatives: d_spectra = d_spectra.squeeze()
+    if derivatives is not None:
+        # Test is NOT on do_derivatives as we want to return 'None' if
+        # derivatives are requested without anything being turned on.
+        return spectra, d_spectra
     else:
-        if squeeze_outputs:
-            return spectra.squeeze()
-        else:
-            return spectra
+        return spectra
 
 
 
@@ -585,11 +588,14 @@ def compute_H_matrices(k,omega,dz,sigma,mu,rho,isrc,irec):
 
 
 
-def compute_seismograms(structure, source, stations, nt,dt,alpha,
+def compute_seismograms(structure, source, stations, nt,dt,alpha=None,
                         source_time_function=None,pad_frac=0.25,kind ='displacement',
                         return_spectra = False,derivatives=None,show_progress = True,**kwargs):
     npad = int(pad_frac*nt)
     tt = np.arange(nt+npad)*dt
+    if alpha is None:
+        # Use 'rule of thumb' given in O'Toole & Woodhouse (2011)
+        alpha = np.log(10)/tt[-1]
     ww = 2*np.pi*np.fft.rfftfreq(nt+npad,dt)
     delta_omega = ww[1]
     ww=ww-alpha*1j
@@ -641,6 +647,45 @@ def compute_seismograms(structure, source, stations, nt,dt,alpha,
             return tt[:nt],seis,deriv
         else:
             return tt[:nt],seis
+
+def compute_static(structure,source,stations,los_vector=None,derivatives=None,**kwargs):
+    if derivatives is None:
+        do_derivatives = False
+    else:
+        if derivatives.nderivs == 0:
+            # Nothing actually turned on...
+            do_derivatives = False
+        else:
+            do_derivatives = True
+    spectra = compute_spectra(structure,source,stations,np.array([0.],dtype='complex128'), \
+                              derivatives=derivatives,show_progress=False,squeeze_outputs=False,**kwargs)
+    if do_derivatives:
+        spectra,d_spectra = spectra
+
+    # Output will have some numerical noise in complex domain, but this should not be significant...
+    assert (np.abs(np.imag(spectra))/np.abs(spectra)).max()<1e-5, "Static field should be effectively real"
+    spectra = np.real(spectra)
+    if do_derivatives: d_spectra = np.real(d_spectra)
+    if los_vector is not None:
+        if type(stations) is ListOfReceivers:
+            es = 'srcw,c->srw'
+            esd = 'srdcw,c->srdw'
+        elif type(stations) is RegularlyDistributedReceivers:
+            es = 'srpcw,c->srpw'
+            esd = 'srpdcw,c->srpdw'
+        else:
+            raise ValueError ("Unrecognised receiver object, type: %s"%(type(stations)))
+        los_vector = los_vector/np.linalg.norm(los_vector)
+        spectra = np.einsum(es,spectra,los_vector)
+        if do_derivatives:
+            d_spectra = np.einsum(esd,d_spectra,los_vector)
+    spectra = spectra.reshape(spectra.shape[:-1])
+    if do_derivatives:
+        d_spectra = d_spectra.reshape(d_spectra.shape[:-1])
+    if do_derivatives:
+        return spectra, d_spectra
+    else:
+        return spectra
 
 class DerivativeSwitches:
     def __init__(self,moment_tensor = False, force = False,

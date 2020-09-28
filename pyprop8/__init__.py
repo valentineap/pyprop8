@@ -27,5 +27,5 @@ from ._core import LayeredStructureModel, \
                     PointSource, \
                     RegularlyDistributedReceivers,ListOfReceivers,\
                     DerivativeSwitches, \
-                    compute_seismograms,compute_spectra, \
+                    compute_seismograms,compute_spectra,compute_static, \
                     kIntegrationStencil
