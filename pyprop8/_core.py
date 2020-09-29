@@ -540,12 +540,14 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
     if squeeze_outputs:
         spectra = spectra.squeeze()
         if do_derivatives: d_spectra = d_spectra.squeeze()
-    if derivatives is not None:
-        # Test is NOT on do_derivatives as we want to return 'None' if
-        # derivatives are requested without anything being turned on.
-        return spectra, d_spectra
-    else:
+    if derivatives is None:
+        # Test is NOT on do_derivatives as we want to return two objects
+        # whenever a DerivativeSwitches object has been provided -- regardless
+        # of whether this actually has anything switched on. If not, d_spectra
+        # will be None (see above).
         return spectra
+    else:
+        return spectra, d_spectra
 
 
 
@@ -589,8 +591,8 @@ def compute_H_matrices(k,omega,dz,sigma,mu,rho,isrc,irec):
 
 
 def compute_seismograms(structure, source, stations, nt,dt,alpha=None,
-                        source_time_function=None,pad_frac=0.25,kind ='displacement',
-                        return_spectra = False,derivatives=None,show_progress = True,**kwargs):
+                        source_time_function=None,pad_frac=0.5,kind ='displacement',xyz=True,
+                        derivatives=None,show_progress = True,squeeze_outputs=True,**kwargs):
     npad = int(pad_frac*nt)
     tt = np.arange(nt+npad)*dt
     if alpha is None:
@@ -608,28 +610,35 @@ def compute_seismograms(structure, source, stations, nt,dt,alpha=None,
         else:
             do_derivatives = True
 
-    spectra = compute_spectra(structure,source,stations,ww,derivatives,show_progress,**kwargs)
-    if do_derivatives:
+    spectra = compute_spectra(structure,source,stations,ww,derivatives,show_progress,squeeze_outputs=False,**kwargs)
+    if derivatives is not None:
+        # Test on derivatives, not do_derivatives, as will return d_spectra as None if derivatives provided but all off
         spectra,d_spectra = spectra
-
-    spec_shape = spectra.shape
-    spec_shape_n = len(spec_shape)
+    if type(stations) is RegularlyDistributedReceivers:
+        ess = 'srpcw,w->srpcw'
+        essd = 'srpdcw,w->srpdcw'
+    elif type(stations) is ListOfReceivers:
+        ess = 'srcw,w->srcw'
+        essd = 'srdcw,w->srdcw'
+    else:
+        raise ValueError("Unrecognised receiver object, type: %s"%(type(stations)))
+    spec_shape_n = len(spectra.shape)
     if kind == 'displacement':
-        spectra /= 1j*ww.reshape((spec_shape_n-1)*[1]+[-1])
-        if do_derivatives:d_spectra /= 1j*ww.reshape((spec_shape_n)*[1]+[-1])
+        spectra = np.einsum(ess,spectra,-1j/ww)
+        if do_derivatives:d_spectra = np.einsum(essd,d_spectra,-1j/ww)
     elif kind == 'velocity':
         pass
     elif kind == 'acceleration':
-        spectra *= 1j*ww.reshape((spec_shape_n-1)*[1]+[-1])
-        if do_derivatives:d_spectra *= 1j*ww.reshape((spec_shape_n)*[1]+[-1])
+        spectra = np.einsum(ess,spectra,1j*ww)
+        if do_derivatives: d_spectra = np.einsum(essd,d_spectra,1j*ww)
     else:
         raise ValueError("Unrecognised seismogram kind '%s'; should be one of 'displacement', 'velocity' or 'acceleration'."%kind)
     if source_time_function is not None:
         stf = np.zeros(ww.shape[0],dtype='complex128')
         for i,w in enumerate(ww):
             stf[i] = source_time_function(w)
-        spectra *= stf.reshape((spec_shape_n-1)*[1]+[-1])
-        if do_derivatives: d_spectra *= stf.reshape((spec_shape_n)*[1]+[-1])
+        spectra = np.einsum(ess,spectra,stf)
+        if do_derivatives: d_spectra = np.einsum(essd,d_spectra,stf)
     # Inverse FFT
     seis = (nt+npad)*delta_omega*np.fft.irfft(spectra)/(2*np.pi)
     # Discard 'padding' and scale by exp(alpha t)
@@ -637,18 +646,40 @@ def compute_seismograms(structure, source, stations, nt,dt,alpha=None,
     if do_derivatives:
         deriv = (nt+npad)*delta_omega*np.fft.irfft(d_spectra)/(2*np.pi)
         deriv = deriv[tuple((spec_shape_n)*[slice(None)]+[slice(None,nt)])]*np.exp(alpha*tt[:nt]).reshape((spec_shape_n)*[1]+[-1])
-    if return_spectra:
-        if do_derivatives:
-            return tt[:nt],seis,deriv,ww,spectra
+    if xyz:
+        # Rotate from (radial/transverse/z to xyz (enz))
+        if type(stations) is RegularlyDistributedReceivers:
+            rotator = np.zeros([stations.nr,stations.nphi,3,3])
+            phi = np.tile(stations.pp,stations.nr).reshape(stations.nr,stations.nphi)
+            rotator[:,:,0,0] = np.cos(phi)
+            rotator[:,:,0,1] = -np.sin(phi)
+            rotator[:,:,1,0] = np.sin(phi)
+            rotator[:,:,1,1] = np.cos(phi)
+            rotator[:,:,2,2] = 1
+            esr = 'rpic,srpct->srpit'
+            esrd ='rpic,srpdct->srpdit'
+        elif type(stations) is ListOfReceivers:
+            rotator = np.zeros([stations.nstations,3,3])
+            rotator[:,0,0] = np.cos(stations.pp)
+            rotator[:,0,1] = -np.sin(stations.pp)
+            rotator[:,1,0] = np.sin(stations.pp)
+            rotator[:,1,1] = np.cos(stations.pp)
+            rotator[:,2,2] = 1
+            esr = 'ric,srct->srit'
+            esrd = 'ric,srdct->srdit'
         else:
-            return tt[:nt],seis,ww,spectra
+            raise ValueError("Unrecognised receiver object, type: %s"%(type(stations)))
+        seis = np.einsum(esr,rotator,seis)
+        if do_derivatives: deriv = np.einsum(esrd,rotator,deriv)
+    if squeeze_outputs:
+        seis = seis.squeeze()
+        if do_derivatives: deriv = deriv.squeeze()
+    if derivatives is None:
+        return tt[:nt],seis
     else:
-        if do_derivatives:
-            return tt[:nt],seis,deriv
-        else:
-            return tt[:nt],seis
+        return tt[:nt],seis,deriv
 
-def compute_static(structure,source,stations,los_vector=None,derivatives=None,**kwargs):
+def compute_static(structure,source,stations,los_vector=np.eye(3),derivatives=None,squeeze_outputs=True,**kwargs):
     if derivatives is None:
         do_derivatives = False
     else:
@@ -667,25 +698,46 @@ def compute_static(structure,source,stations,los_vector=None,derivatives=None,**
     spectra = np.real(spectra)
     if do_derivatives: d_spectra = np.real(d_spectra)
     if los_vector is not None:
+        nlos = len(los_vector.shape)
+        if nlos == 1:
+            eslos = ('i','')
+        elif nlos == 2:
+            eslos = ('ij','j')
+        else:
+            raise ValueError('los_vector should be one- or two-dimensional')
         if type(stations) is ListOfReceivers:
-            es = 'srcw,c->srw'
-            esd = 'srdcw,c->srdw'
+            es = 'ric,srcw,%s->sr%sw'%eslos
+            esd = 'ric,srdcw,%s->srd%sw'%eslos
+            rotator = np.zeros([stations.nstations,3,3])
+            rotator[:,0,0] = np.cos(stations.pp)
+            rotator[:,0,1] = -np.sin(stations.pp)
+            rotator[:,1,0] = np.sin(stations.pp)
+            rotator[:,1,1] = np.cos(stations.pp)
+            rotator[:,2,2] = 1
         elif type(stations) is RegularlyDistributedReceivers:
-            es = 'srpcw,c->srpw'
-            esd = 'srpdcw,c->srpdw'
+            es = 'rpic,srpcw,%s->srp%sw'%eslos
+            esd = 'rpic,srpdcw,%s->srpd%sw'%eslos
+            rotator = np.zeros([stations.nr,stations.nphi,3,3])
+            phi = np.tile(stations.pp,stations.nr).reshape(stations.nr,stations.nphi)
+            rotator[:,:,0,0] = np.cos(phi)
+            rotator[:,:,0,1] = -np.sin(phi)
+            rotator[:,:,1,0] = np.sin(phi)
+            rotator[:,:,1,1] = np.cos(phi)
+            rotator[:,:,2,2] = 1
         else:
             raise ValueError ("Unrecognised receiver object, type: %s"%(type(stations)))
         los_vector = los_vector/np.linalg.norm(los_vector)
-        spectra = np.einsum(es,spectra,los_vector)
-        if do_derivatives:
-            d_spectra = np.einsum(esd,d_spectra,los_vector)
+        spectra = np.einsum(es,rotator,spectra,los_vector)
+        if do_derivatives: d_spectra = np.einsum(esd,rotator,d_spectra,los_vector)
     spectra = spectra.reshape(spectra.shape[:-1])
-    if do_derivatives:
-        d_spectra = d_spectra.reshape(d_spectra.shape[:-1])
-    if do_derivatives:
-        return spectra, d_spectra
-    else:
+    if do_derivatives: d_spectra = d_spectra.reshape(d_spectra.shape[:-1])
+    if squeeze_outputs:
+        spectra = spectra.squeeze()
+        if do_derivatives: d_spectra = d_spectra.squeeze()
+    if derivatives is None:
         return spectra
+    else:
+        return spectra, d_spectra
 
 class DerivativeSwitches:
     def __init__(self,moment_tensor = False, force = False,
