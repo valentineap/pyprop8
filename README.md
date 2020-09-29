@@ -156,29 +156,42 @@ If derivatives are requested, these are contained in the second array returned b
 #### Time series
 To compute seismograms, call
 ```
-tt,seismograms [, d_seismograms] = compute_seismograms(structure, source, stations
-                     nt, dt, alpha,
-                     source_time_function=None,pad_frac=0.25,kind='displacement',
-                     return_spectra = False, derivatives = None,
+tt,seismograms [, dseismograms] = compute_seismograms(structure, source, stations
+                     nt, dt, alpha = None,
+                     source_time_function=None,pad_frac=0.5,kind='displacement',
+                     xyz = True, derivatives = None,
                      show_progress = True, **kwargs)
 ```
-This is a wrapper around `compute_spectra`. Arguments are as follows:
-- `structure` is an instance of `LayeredStructureModel`.
-- `source` is an instance of `PointSource`.
-- `stations` is an instance of `RegularlyDistributedReceivers` or `ListOfReceivers`.
+This is a wrapper around `compute_spectra`, and the arguments `structure`, `source` and `stations` are as defined above. Additional arguments are:
 - `nt` is the number of time samples in the output time series.
 - `dt` is the time-step for the output time series (i.e., total length will be `dt*(nt-1)`.)
-- `alpha` is a parameter describing how far off the real axis computations should be undertaken. In effect, we calculate `exp(-alpha t).s(t)`, and then 'undo' the exponential scaling before returning `s(t)`. The purpose of this is to avoid singularities on the real axis that are associated with surface wave propagation.
-- `source_time_function` is a callable, `stf(omega)`, taking a single complex-valued argument (a frequency, in units of rad/s), and returning a scalar value (possibly complex). If provided, the seismic spectra are multiplied by this function prior to the inverse Fourier transform being taken. This allows a source time-function (or other filtering operations) to be applied.
+- `alpha` is a parameter describing how far off the real axis computations should be undertaken. In effect, we calculate `exp(-alpha t).s(t)`, and then 'undo' the exponential scaling before returning `s(t)`. The purpose of this is to avoid singularities on the real axis that are associated with surface wave propagation. If `alpha=None` (default), we use rule of thumb proposed in O'Toole & Woodhouse (2011): `alpha = log(10)/tmax`.
+- `source_time_function` is a callable, `stf(omega)`, taking a single complex-valued argument (a frequency, in units of rad/s), and returning a scalar value (possibly complex). If provided, the seismic spectra are multiplied by this function prior to the inverse Fourier transform being taken. This allows a source time-function (or other filtering operations) to be applied. Some appropriate functions are available in  `pyprop8.utils`.
 - `pad_frac` is a float representing any additional time series length to be computed and then discarded (to circumvent ringing and other 'edge' effects). This is expressed as a fraction of `nt`, i.e. a time series of length `(1 + pad_frac)*nt` samples is initially computed, but only the first `nt` points are returned.
 - `kind` is a string: permissible values are `displacement`, `velocity` or `acceleration`. This determines the class of observable that is simulated.
-- `return_spectra` is a boolean value; set to True for both seismograms and spectra to be returned; otherwise only seismograms are returned.
+- `xyz` is a boolean value; set to True (default) to obtain seismograms relative to a Cartesian [x/y/z or east/north/vertical] basis; otherwise they will be expressed in a cylindrical coordinate system [radial/transverse/vertical].
 - `derivatives` should be passed a `DerivativeSwitches` object if any derivatives are sought.
 - `show_progress` is a boolean value; set to True for a progress bar to be displayed.
-- Any additional keyword arguments are passed to `compute_spectra()`. 
+- `squeeze_outputs` is a boolean value; set to `True` to call `np.squeeze()` on the spectra before returning, to discard any unnecessary dimensions in the array (i.e, dimensions of length 1).
+Any additional keyword arguments are passed to `compute_spectra`.
+
+`compute_seismograms` returns two or three arrays, depending on whether derivatives are requested. The first, `tt`, is a one-dimensional array of length `nt`, containing the time-steps at which the seismogram has been computed. The second, `seismograms`, has a shape that depends on the class of `stations`. If this is `RegularlyDistributedReceivers`, then the shape is `(nsources, nr, nphi, 3, nt)`; if `ListOfReceivers`, it will be `(nsources, nstations, 3, nt)`. If derivatives are requested, the third array will have shape `(nsources, nr, nphi, nderivs, 3, nt)` or `(nsources, nstations, nderivs, 3, nt)`. Again, if `squeeze_outputs=True`, any dimensions containing only one entry will be discarded.
+
 #### Static displacement
+A second wrapper around `compute_spectra` handles the zero-frequency case, outputting static displacement data. This has signature
 
+```
+static [, d_static] = compute_static(structure, source, stations,
+                                     los_vector = None, derivatives = None,
+                                     squeeze_outputs=True,**kwargs)
+```
+Again, `structure`, `source` and `stations` are as defined above. Additional arguments are:
+- `los_vector` describes the 'line of sight' along which the displacement field is to be viewed. If a 1-D array is provided, the static displacement field is projected onto this direction (expressed relative to a Cartesian basis). If a 2-D array is provided, each column of the array is treated as an independent line-of-sight, and the static field corresponding to each is returned. Thus, the default value of `np.eye(3)` returns the static displacement relative to each coordinate axis in the Cartesian basis. Finally, setting `los_vector=None` will cause the displacement field to be returned in the cylindrical [radial/transverse/vertical] basis that is employed for computation.
+- `derivatives` is a `DerivativesSwitches` object describing any derivatives that should be computed.
+- `squeeze_outputs` is a boolean value; set to `True` to call `np.squeeze()` on the spectra before returning, to discard any unnecessary dimensions in the array (i.e, dimensions of length 1).
+All other keyword arguments are passed to `compute_spectra`.
 
+One or two arrays are returned, depending on the value of `derivatives`. The first, containing the static displacements, has shape `(nsources, nr, nphi, nlos)` or `(nsources, nstations, nlos)` depending on the type of the `stations` object used (as discussed above); here, `nlos` is the number of columns in the `los_vector` array, or 3 if `los_vector=None`. The second array, if present, contains the derivatives. This  has shape `(nsources, nr, nphi, nderivs, nlos)` or `(nsources, nstations, nderivs, nlos)`. Again, if a `DerivativeSwitches` object is passed to `compute_static` but all derivative components are switched off, `None` will be returned for `d_static`, and the value of the `squeeze_outputs` argument may modify the array shapes.
 ### A minimal example
 
 Summarising all the above, a minimal working example might be:
