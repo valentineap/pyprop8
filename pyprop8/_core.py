@@ -158,11 +158,13 @@ class LayeredStructureModel:
         rho = self.rho.copy()
         N = dz.shape[0]
         indices = []
+        pseudo = []
         for interface in interfaces:
             z = 0
             for ilayer in range(N):
                 if interface<z+dz[ilayer]: break
                 z+=dz[ilayer]
+            added = False
             if interface>z:
                 dz_ = np.zeros(N+1,dz.dtype)
                 dz_[:ilayer] = dz[:ilayer]
@@ -186,8 +188,10 @@ class LayeredStructureModel:
                 mu = mu_
                 rho = rho_
                 N+=1
+                added = True
             indices+=[ilayer]
-        return tuple([dz,sigma,mu,rho]+indices)
+            pseudo +=[added]
+        return tuple([dz,sigma,mu,rho]+indices+pseudo)
     @property
     def vp(self):
         '''P-wave velocity'''
@@ -399,7 +403,7 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
     nk = k.shape[0]
     k_wts/=(2*np.pi)
 
-    dz,sigma,mu,rho,isrc,irec = structure.with_interfaces(source.dep,stations.depth)
+    dz,sigma,mu,rho,isrc,irec,src_added,rec_added = structure.with_interfaces(source.dep,stations.depth)
     assert irec<isrc,"Receivers must be above source"
 
     # Set up Bessel function arrays
@@ -448,7 +452,10 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
 
     eimphi = np.exp(np.outer(1j*mm,stations.pp))
     for iom,omega in enumerate(omegas):
-        H_psv,H_sh = compute_H_matrices(k[k!=0],omega,dz,sigma,mu,rho,isrc,irec)
+        if derivatives.thickness:
+            H_psv,H_sh, d_H_psv,d_H_sh = compute_H_matrices(k[k!=0],omega,dz,sigma,mu,rho,isrc,irec,do_derivatives=True)
+        else:
+            H_psv,H_sh = compute_H_matrices(k[k!=0],omega,dz,sigma,mu,rho,isrc,irec)
 
         b = np.zeros([nk,nsources,6,5],dtype='complex128')
         for i in range(nsources):
@@ -478,6 +485,33 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
                     s_psv,s_sh = sourceVector_ddep(source.Mxyz[i,:,:],source.F[i,:,0],omega,k[k!=0],sigma[isrc],mu[isrc],rho[isrc])
                     d_b[k!=0,i,j0,:4,:] = (H_psv@s_psv).value
                     d_b[k!=0,i,j0,4:,:] = (H_sh@s_sh).value
+            if derivatives.thickness:
+                if not src_added: warnings.warn("Thickness derivatives may be inaccurate: source lies exactly at structural interface")
+                j0 = derivatives.i_thickness
+                j = 0
+                for l in range(dz.shape[0]-1):
+                    if l == isrc-1 and src_added: continue # we're not interested in the layer created to represent the source depth
+                    if l == irec-1 and rec_added: continue # we're not interested in the layer created to represent the receiver depth
+                    for i in range(nsources):
+                        s_psv,s_sh = sourceVector(source.Mxyz[i,:,:],source.F[i,:,0],k[k!=0],sigma[isrc],mu[isrc])
+                        d_b[k!=0,i,j0+j,:4,:] = (d_H_psv[l]@s_psv).value
+                        d_b[k!=0,i,j0+j,4:,:] = (d_H_sh[l]@s_sh).value
+                        if l<isrc:
+                            # We need to move source 'up' to compensate for thicker layer above
+                            # i.e. make layer above source thinner
+                            d_b[k!=0,i,j0+j,:4,:] -= (d_H_psv[isrc-1]@s_psv).value
+                            d_b[k!=0,i,j0+j,4:,:] -= (d_H_sh[isrc-1]@s_sh).value
+                            # This is not correct if our source lies exactly at a structural interface -- likely rare...
+                            # Hence warning message above
+                            # Handling this properly would entail creating an additional, infinitesimal layer and re-doing propagation
+                        if l<irec and rec_added:
+                            # Move receiver 'up' to compensate for thicker layer above.
+                            d_b[k!=0,i,j0+j,:4,:] -= (d_H_psv[irec-1]@s_psv).value
+                            d_b[k!=0,i,j0+j,4:,:] -= (d_H_sh[irec-1]@s_sh).value
+                            # No warning if receivers lie exactly at a structural interface: this most likely corresponds to
+                            # receivers deliberately installed to coincide with interface (e.g. ocean floor).
+                    j+=1
+
         del H_psv,H_sh,s_psv,s_sh
         if determine_optimal_plan and iom==0:
             # First time through, determine optimal contraction schemes
@@ -534,6 +568,14 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
             if derivatives.time:
                 j0 = derivatives.i_time
                 d_spectra[:,:,ss,j0,:,iom] = -1j*omega*spectra[:,:,ss,:,iom]
+            if derivatives.thickness:
+                j0 = derivatives.i_thickness
+                for j in range(structure.nlayers-1):
+                    d_spectra[:,:,ss,j0+j,0,iom] = np.einsum(es1,k*k_wts,d_b[:,:,j0+j,1,:],jvp,eimphi,optimize=plan_1)+ \
+                                    np.einsum(es2,1j*mm,d_b[:,:,j0+j,4,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)
+                    d_spectra[:,:,ss,j0+j,1,iom] = np.einsum(es2,1j*mm,d_b[:,:,j0+j,1,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)-\
+                                    np.einsum(es1,k*k_wts,d_b[:,:,j0+j,4,:],jvp,eimphi,optimize=plan_1)
+                    d_spectra[:,:,ss,j0+j,2,iom] = np.einsum(es1,k*k_wts,d_b[:,:,j0+j,0,:],jv,eimphi,optimize=plan_1)
         if show_progress: t.update(1)
     if show_progress:
         t.close()
@@ -551,31 +593,80 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
 
 
 
-def compute_H_matrices(k,omega,dz,sigma,mu,rho,isrc,irec):
+def compute_H_matrices(k,omega,dz,sigma,mu,rho,isrc,irec,do_derivatives=False):
+    # Note on derivatives: the P-SV calculations are done with everything
+    # propagated to the receiver depth, whereas SH calculations mix source
+    # and receiver quantities. Thus the algorithmic structure of the derivative
+    # calculation differs.
     nlayers = dz.shape[0]
     # Propagate surface b/c to receiver
+    if do_derivatives:
+        surface_bc_sh_drv = []
+        surface_bc_psv_drv = []
     if mu[0] == 0:
         surface_bc_sh = oceanFloorBoundary(dz[0],omega,k,sigma[0],rho[0],True)
         surface_bc_psv = oceanFloorBoundary(dz[0],omega,k,sigma[0],rho[0],False)
         ibc = 1
+        if do_derivatives:
+            surface_bc_sh_drv += [oceanFloorBoundary_deriv(dz[0],omega,k,sigma[0],rho[0],True)]
+            surface_bc_psv_drv += [oceanFloorBoundary_deriv(dz[0],omega,k,sigma[0],rho[0],False)]
     else:
         surface_bc_sh = freeSurfaceBoundary(k.shape[0],True)
         surface_bc_psv = freeSurfaceBoundary(k.shape[0],False)
         ibc = 0
+
     for i in range(ibc,irec):
+        # Deal with derivatives first - before we do in-place propagation of the vectors
+        if do_derivatives:
+            for j in range(len(surface_bc_sh_drv)):
+                # Normal propagation on every derivative that already exists
+                surface_bc_sh_drv[j], _, surface_bc_psv_drv[j] = propagate(omega,k,-dz[i],sigma[i],mu[i],rho[i],m2=surface_bc_sh_drv[j],m6=surface_bc_psv_drv[j])
+            sh_drv, _, psv_drv = propagate_deriv(omega,k,-dz[i],sigma[i],mu[i],rho[i],m2=surface_bc_sh,m6=surface_bc_psv,inplace=False)
+            surface_bc_sh_drv += [sh_drv]
+            surface_bc_psv_drv += [psv_drv]
         surface_bc_sh, _, surface_bc_psv = propagate(omega,k,-dz[i],sigma[i],mu[i],rho[i],m2=surface_bc_sh,m6=surface_bc_psv)
+    if do_derivatives:
+        for i in range(irec,nlayers-1):
+            surface_bc_sh_drv+=[None]
+
+
     # Propagate basal b/c to source depth
     basal_bc_sh = underlyingHalfspaceBoundary(omega,k,sigma[-1],mu[-1],rho[-1],True)
     basal_bc_psv = underlyingHalfspaceBoundary(omega,k,sigma[-1],mu[-1],rho[-1],False)
+    if do_derivatives:
+        basal_bc_sh_drv = []
+        basal_bc_psv_drv = []
     for i in range(nlayers-2,isrc-1,-1):
         #print(i,dz[i],sigma[i],mu[i],rho[i])
+        if do_derivatives:
+            for j in range(len(basal_bc_sh_drv)):
+                basal_bc_sh_drv[j], _, basal_bc_psv_drv[j] = propagate(omega,k,dz[i],sigma[i],mu[i],rho[i],m2=basal_bc_sh_drv[j],m6 = basal_bc_psv_drv[j])
+            sh_drv, _, psv_drv = propagate_deriv(omega,k,dz[i],sigma[i],mu[i],rho[i],m2=basal_bc_sh,m6=basal_bc_psv,inplace=False)
+            basal_bc_sh_drv += [sh_drv]
+            basal_bc_psv_drv += [psv_drv]
         basal_bc_sh,_,basal_bc_psv = propagate(omega,k,dz[i],sigma[i],mu[i],rho[i],m2=basal_bc_sh,m6=basal_bc_psv)
     basal_bc_sh_at_src = basal_bc_sh.copy()
+    if do_derivatives:
+        basal_bc_sh_drv_at_src = [b.copy() for b in basal_bc_sh_drv]
     # basal_bc_psv_at_src = basal_bc_psv.copy()
     # Create N and continue to propagate everything up to receiver
     N = makeN(basal_bc_psv)
+    if do_derivatives:
+        N_drv = [makeN(b) for b in basal_bc_psv_drv]
     for i in range(isrc-1,irec-1,-1):
+        if do_derivatives:
+            for j in range(len(basal_bc_sh_drv)):
+                basal_bc_sh_drv[j], N_drv[j], basal_bc_psv_drv[j] = propagate(omega,k,dz[i],sigma[i],mu[i],rho[i], m2=basal_bc_sh_drv[j], m4=N_drv[j], m6 = basal_bc_psv_drv[j])
+            sh_drv, N_drv_entry, psv_drv = propagate_deriv(omega,k,dz[i],sigma[i],mu[i],rho[i],m2=basal_bc_sh,m4 = N, m6=basal_bc_psv,inplace=False)
+            basal_bc_sh_drv += [sh_drv]
+            basal_bc_sh_drv_at_src += [None]
+            N_drv += [N_drv_entry]
+            basal_bc_psv_drv += [psv_drv]
         basal_bc_sh,N,basal_bc_psv = propagate(omega,k,dz[i],sigma[i],mu[i],rho[i],m2=basal_bc_sh,m4=N,m6=basal_bc_psv)
+    if do_derivatives:
+        for i in range(irec-1,-1,-1):
+            basal_bc_sh_drv+=[None]
+            basal_bc_sh_drv_at_src +=[None]
     # Now assemble H
     H_psv = (makeN(surface_bc_psv) @ N)/makeDelta(surface_bc_psv,basal_bc_psv)
     H_sh = np.zeros([k.shape[0],2,2],dtype='complex128')
@@ -584,7 +675,51 @@ def compute_H_matrices(k,omega,dz,sigma,mu,rho,isrc,irec):
     H_sh[:,1,0] = surface_bc_sh.M[:,1,0]*basal_bc_sh_at_src.M[:,1,0]
     H_sh[:,1,1] = -surface_bc_sh.M[:,1,0]*basal_bc_sh_at_src.M[:,0,0]
     H_sh = scm.ScaledMatrixStack(H_sh,surface_bc_sh.scale+basal_bc_sh_at_src.scale)/makeDelta(surface_bc_sh,basal_bc_sh,sh=True)
-    return H_psv,H_sh
+    if do_derivatives:
+        # We want to work top -> bottom so reverse the lists built bottom -> top
+        basal_bc_sh_drv.reverse()
+        basal_bc_sh_drv_at_src.reverse()
+        basal_bc_psv_drv.reverse()
+        N_drv.reverse()
+
+        H_sh_drv = []
+        H_psv_drv = []
+
+        delta = makeDelta(surface_bc_psv,basal_bc_psv)
+        for s in surface_bc_psv_drv:
+            H_psv_drv += [((makeN(s)@N) - H_psv*makeDelta(s,basal_bc_psv))/delta]
+        for Nd, b in zip(N_drv,basal_bc_psv_drv):
+            H_psv_drv += [((makeN(surface_bc_psv)@Nd) - H_psv*makeDelta(surface_bc_psv,b))/delta]
+        print(len(surface_bc_sh_drv),len(basal_bc_sh_drv_at_src),len(basal_bc_sh_drv))
+        for s,bsrc,b in zip(surface_bc_sh_drv,basal_bc_sh_drv_at_src,basal_bc_sh_drv):
+            D1 = np.zeros([k.shape[0],2,2],dtype='complex128')
+            ddelta = scm.ScaledMatrixStack(np.zeros([k.shape[0],1,1],dtype='complex128'))
+            if s is not None:
+                D1[:,0,0] = s.M[:,0,0]*basal_bc_sh_at_src.M[:,1,0]
+                D1[:,0,1] = -s.M[:,0,0]*basal_bc_sh_at_src.M[:,0,0]
+                D1[:,1,0] = s.M[:,1,0]*basal_bc_sh_at_src.M[:,1,0]
+                D1[:,1,1] = -s.M[:,1,0] *basal_bc_sh_at_src.M[:,0,0]
+                D1 = scm.ScaledMatrixStack(D1,s.scale+basal_bc_sh_at_src.scale)
+                ddelta += makeDelta(s,basal_bc_sh,sh=True)
+            else:
+                D1 = scm.ScaledMatrixStack(D1)
+            D2 = np.zeros([k.shape[0],2,2],dtype='complex128')
+            if bsrc is not None:
+                D2[:,0,0] = surface_bc_sh.M[:,0,0]*bsrc.M[:,1,0]
+                D2[:,0,1] = -surface_bc_sh.M[:,0,0]*bsrc.M[:,0,0]
+                D2[:,1,0] = surface_bc_sh.M[:,1,0]*bsrc.M[:,1,0]
+                D2[:,1,1] = -surface_bc_sh.M[:,1,0]*bsrc.M[:,0,0]
+                D2 = scm.ScaledMatrixStack(D2,surface_bc_sh.scale+bsrc.scale)
+            else:
+                D2 = scm.ScaledMatrixStack(D2)
+            if b is not None:
+                ddelta += makeDelta(surface_bc_sh,b,sh=True)
+            D = (D1 + D2 - H_sh*ddelta)/makeDelta(surface_bc_sh,basal_bc_sh,sh=True)
+            H_sh_drv += [D]
+    if do_derivatives:
+        return H_psv,H_sh, H_psv_drv,H_sh_drv
+    else:
+        return H_psv,H_sh
 
 
 
@@ -827,6 +962,18 @@ def oceanFloorBoundary(depth,omega,k,sigma,rho,sh=False):
         m = np.zeros([nk,6,1],dtype='complex128')
         m[:,0,0] = 1+t
         if omega!=0: m[:,3,0] = -rho*omega**2*(1-t)/zsig
+    return scm.ScaledMatrixStack(m)
+
+def oceanFloorBoundary_deriv(depth,omega,k,sigma,rho,sh=False):
+    nk = k.shape[0]
+    if sh:
+        m = np.zeros([nk,2,1],dtype='complex128')
+    else:
+        zsig = np.lib.scimath.sqrt(k**2 - rho*omega**2/sigma)
+        t = np.exp(-2*depth*zsig)
+        m = np.zeros([nk,6,1],dtype='complex128')
+        m[:,0,0] = -2*t*zsig
+        if omega!=0: m[:,3,0] = -2*rho*t*omega**2
     return scm.ScaledMatrixStack(m)
 
 def underlyingHalfspaceBoundary(omega,k,sigma,mu,rho,sh=False):
@@ -1218,9 +1365,177 @@ def propagate(omega,k,dz,sigma,mu,rho,m2=None,m4=None,m6=None,inplace=True):
         m6r = None
     return m2r,m4r,m6r
 
+def propagate_deriv(omega,k,dz,sigma,mu,rho,m2=None,m4=None,m6=None,inplace=True):
+    if np.any(k==0):
+        raise ValueError("propagate_deriv does not handle k==0.")
+    nk = k.shape[0]
+    if m4 is not None or m6 is not None:
+        zsig = np.lib.scimath.sqrt(k**2 - rho*omega**2/sigma)
+        csig,ssig,scalesig = exphyp(dz*zsig)
+    zmu = np.lib.scimath.sqrt(k**2 - rho*omega**2/mu)
+    cmu,smu,scalemu = exphyp(dz*zmu)
+    if m2 is not None:
+        M = np.zeros((nk,2,2),dtype='complex128')
+        M[:,0,0] = zmu*smu
+        M[:,0,1] = cmu/mu
+        M[:,1,0] = mu*cmu*zmu**2
+        M[:,1,1] = zmu*smu
+        if inplace:
+            out = m2
+        else:
+            out = None
+        m2r = scm.ScaledMatrixStack(M,scalemu.copy()).matmul(m2,out=out)
+        del M
+    else:
+        m2r = None
+    if m4 is not None:
+        exphap_s = np.zeros([nk,4,4],dtype='complex128')
+        exphap_s[:,0,0] = ssig*zsig
+        exphap_s[:,0,1] = k*ssig*zsig/omega**2
+        exphap_s[:,0,2] = -csig*(zsig/omega)**2
+        exphap_s[:,2,0] = -omega**2*csig
+        exphap_s[:,2,1] = -k*csig
+        exphap_s[:,2,2] = ssig*zsig
+        exphap_s[:,3,0] = -k*csig
+        exphap_s[:,3,1] = -(k/omega)**2*csig
+        exphap_s[:,3,2] = k*ssig*zsig/omega**2
+        M = scm.ScaledMatrixStack(exphap_s,scalesig.copy())
+        del exphap_s
+
+        exphap_m = np.zeros([nk,4,4],dtype='complex128')
+        exphap_m[:,0,1] = -k*smu*zmu/omega**2
+        exphap_m[:,0,2] = (k/omega)**2*cmu
+        exphap_m[:,0,3] = -k*cmu
+        exphap_m[:,1,1] = smu*zmu
+        exphap_m[:,1,2] = -k*cmu
+        exphap_m[:,1,3] = omega**2*cmu
+        exphap_m[:,3,1] = cmu*(zmu/omega)**2
+        exphap_m[:,3,2] = -k*zmu*smu/omega**2
+        exphap_m[:,3,3] = smu*zmu
+        M += scm.ScaledMatrixStack(exphap_m,scalemu.copy())
+        del exphap_m
+        rtrho = np.sqrt(rho)
+        Z = np.zeros([nk,4,4],dtype='complex128')
+        Z[:,0,0] = 1/rtrho
+        Z[:,1,3] = -1/rtrho
+        Z[:,2,2] = rtrho
+        Z[:,2,3] = -2*mu*k/rtrho
+        Z[:,3,0] = 2*mu*k/rtrho
+        Z[:,3,1] = rtrho
+
+        iZ = np.zeros([nk,4,4],dtype='complex128')
+        iZ[:,0,0] = rtrho
+        iZ[:,1,0] = -2*mu*k/rtrho
+        iZ[:,1,3] = 1/rtrho
+        iZ[:,2,1] = -2*mu*k/rtrho
+        iZ[:,2,2] = 1/rtrho
+        iZ[:,3,1] = -rtrho
+        if inplace:
+            out = m4
+        else:
+            out = None
+        m4r = scm.ScaledMatrixStack(Z).matmul(M.matmul(scm.ScaledMatrixStack(iZ).matmul(m4,out=out),out=out),out=out)
+        del Z,iZ,M
+    else:
+        m4r = None
+    if m6 is not None:
+        Pc = cmu*csig
+        Ps = smu*ssig
+        X1 = cmu*ssig
+        X2 = csig*smu
+        M = np.zeros([nk,6,6],dtype='complex128')
+        M[:,0,0] = X2*zmu+X1*zsig
+        M[:,0,1] = -Pc - Ps*zsig/zmu
+        M[:,0,2] = Pc + Ps*zsig/zmu
+        M[:,0,3] = -Pc/sigma - Ps*zsig/(zmu*mu)
+        M[:,0,4] = Pc + Ps*zsig/zmu
+        M[:,0,5] = -zsig*(X1+X2*zsig/zmu)
+
+        M[:,1,0] = -Pc - Ps*zmu/zsig
+        M[:,1,1] = X2/zmu + X1/zsig
+        M[:,1,2] = -X2/zmu - X1/zsig
+        M[:,1,3] = X2/(mu*zmu) + X1/(sigma*zsig)
+        M[:,1,4] = -X2/zmu - X1/zsig
+        M[:,1,5] = Pc + Ps*zsig/zmu
+
+        M[:,2,0] = -Pc/mu - Ps*zmu/(sigma*zsig)
+        M[:,2,1] = X2/(mu*zmu) + X1/(sigma*zsig)
+        M[:,2,2] = -X2/(mu*zmu) - X1/(sigma*zsig)
+        M[:,2,3] = ((k**2 *(mu-sigma) + rho*omega**2)*X1*zmu + (k**2 * (sigma-mu) +rho*omega**2)*X2*zsig)/(mu*rho*sigma*omega**2 *zmu*zsig)
+        M[:,2,4] = -X2/(mu*zmu) -X1/(sigma*zsig)
+        M[:,2,5] = Pc/sigma + Ps*zsig/(mu*zmu)
+
+        M[:,3,0] = Pc+Ps*zmu/zsig
+        M[:,3,1] = -X2/zmu - X1/zsig
+        M[:,3,2] = X2/zmu + X1/zsig
+        M[:,3,3] = -X2/(mu*zmu) - X1/(sigma*zsig)
+        M[:,3,4] = X2/zmu + X1/zsig
+        M[:,3,5] = -Pc - Ps*zsig/zmu
+
+        M[:,4,0] = Pc+Ps*zmu/zsig
+        M[:,4,1] = -X2/zmu - X1/zsig
+        M[:,4,2] = X2/zmu + X1/zsig
+        M[:,4,3] = -X2/(mu*zmu) - X1/(sigma*zsig)
+        M[:,4,4] = X2/zmu + X1/zsig
+        M[:,4,5] = -Pc - Ps*zsig/zmu
+
+        M[:,5,0] = zmu*(-X2-X1*zmu/zsig)
+        M[:,5,1] = Pc+Ps*zmu/zsig
+        M[:,5,2] = -Pc -Ps*zmu/zsig
+        M[:,5,3] = Pc/mu + Ps*zmu/(sigma*zsig)
+        M[:,5,4] = -Pc -Ps*zmu/zsig
+        M[:,5,5] = X2*zmu + X1*zsig
+        M = scm.ScaledMatrixStack(M,scalemu+scalesig)
+        Z = np.zeros([nk,6,6],dtype='complex128')
+        Z[:,0,2] = -1
+        Z[:,1,1] = k
+        Z[:,1,2] = -2*k*mu
+        Z[:,2,0] = 1
+        Z[:,3,5] = 1
+        Z[:,4,2] = 2*k*mu
+        Z[:,4,4] = k
+        Z[:,5,1] = -2*k**2*mu
+        Z[:,5,2] = 4*k**2 * mu**2
+        Z[:,5,3] = -rho*omega**2
+        Z[:,5,4] = 2*k**2*mu
+        iZ = np.zeros([nk,6,6],dtype='complex128')
+        iZ[:,0,2] = 1
+        iZ[:,1,0] = -2*mu*k**2
+        iZ[:,1,1] = k
+        iZ[:,2,0] = -rho*omega**2
+        iZ[:,3,0] = 4*k**2 * mu**2
+        iZ[:,3,1] = -2*k*mu
+        iZ[:,3,4] = 2*k*mu
+        iZ[:,3,5] = -1
+        iZ[:,4,0] = 2*mu*k**2
+        iZ[:,4,4] = k
+        iZ[:,5,3] = 1
+        if inplace:
+            out = m6
+        else:
+            out = None
+        m6r = scm.ScaledMatrixStack(Z).matmul(M.matmul(scm.ScaledMatrixStack(iZ).matmul(m6,out=out),out=out),out=out)
+    else:
+        m6r = None
+    return m2r,m4r,m6r
+
 def makeN(s):
     m = s.M
     N = np.zeros([s.nStack,4,4],dtype='complex128')
+    #
+    # R = np.zeros([4,4,6])
+    # R[0,0,1] = -1
+    # R[0,1,2] = -1
+    # R[0,3,0] = 1
+    # R[1,0,3] = -1
+    # R[1,1,4] = -1
+    # R[1,2,0] = -1
+    # R[2,1,5] = -1
+    # R[2,2,1] = -1
+    # R[2,3,3] = -1
+    # R[3,0,5] = 1
+    # R[3,2,2] = -1
+    # R[3,3,4] = -1
     N[:,0,0] = -m[:,1,0]
     N[:,0,1] = -m[:,2,0]
     N[:,0,3] = m[:,0,0]
