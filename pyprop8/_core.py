@@ -1282,7 +1282,7 @@ def propagate_zerofreq_deriv(k,dz,sigma,mu,rho,m2=None,m4=None,m6=None,inplace=T
     if m6 is not None:
         exphap = np.zeros([nk,6,6],dtype='complex128')
         fac = rho*(mu+sigma)/(mu*sigma)
-        exphap[:,0,0] = 2*c*dz*s
+        exphap[:,0,0] = 2*c*k*s
         exphap[:,0,1] = -2*k*s**2
         exphap[:,0,3] = -fac*s**2
         exphap[:,0,4] = 2*k*s**2
@@ -1547,6 +1547,8 @@ def propagate(omega,k,dz,sigma,mu,rho,m2=None,m4=None,m6=None,inplace=True):
 def propagate_deriv(omega,k,dz,sigma,mu,rho,m2=None,m4=None,m6=None,inplace=True):
     if np.any(k==0):
         raise ValueError("propagate_deriv does not handle k==0.")
+    if omega == 0: # Special handler for zero-frequency system
+        return propagate_zerofreq_deriv(k,dz,sigma,mu,rho,m2,m4,m6,inplace)
     nk = k.shape[0]
     if m4 is not None or m6 is not None:
         zsig = np.lib.scimath.sqrt(k**2 - rho*omega**2/sigma)
