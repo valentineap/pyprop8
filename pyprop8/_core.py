@@ -452,8 +452,12 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
 
     eimphi = np.exp(np.outer(1j*mm,stations.pp))
     for iom,omega in enumerate(omegas):
-        if derivatives.thickness:
-            H_psv,H_sh, d_H_psv,d_H_sh = compute_H_matrices(k[k!=0],omega,dz,sigma,mu,rho,isrc,irec,do_derivatives=True)
+        if do_derivatives:
+            H = compute_H_matrices(k[k!=0],omega,dz,sigma,mu,rho,isrc,irec,do_derivatives=derivatives.thickness)
+            if derivatives.thickness:
+                H_psv,H_sh, d_H_psv,d_H_sh = H
+            else:
+                H_psv, H_sh = H
         else:
             H_psv,H_sh = compute_H_matrices(k[k!=0],omega,dz,sigma,mu,rho,isrc,irec)
 
@@ -489,30 +493,42 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
                 if not src_added: warnings.warn("Thickness derivatives may be inaccurate: source lies exactly at structural interface")
                 j0 = derivatives.i_thickness
                 j = 0
-                for l in range(dz.shape[0]-1):
-                    if l == isrc-1 and src_added: continue # we're not interested in the layer created to represent the source depth
-                    if l == irec-1 and rec_added: continue # we're not interested in the layer created to represent the receiver depth
+                for l in range(dz.shape[0]-1): # For all layers except the infinite halfspace...
+                    if l == isrc-1 and src_added: continue # ...but we're not interested in a fake layer created to represent the source depth...
+                    if l == irec-1 and rec_added: continue # ...or in a fake layer created to represent the receiver depth...
                     for i in range(nsources):
                         s_psv,s_sh = sourceVector(source.Mxyz[i,:,:],source.F[i,:,0],k[k!=0],sigma[isrc],mu[isrc])
                         d_b[k!=0,i,j0+j,:4,:] = (d_H_psv[l]@s_psv).value
                         d_b[k!=0,i,j0+j,4:,:] = (d_H_sh[l]@s_sh).value
                         if l<isrc:
-                            # We need to move source 'up' to compensate for thicker layer above
-                            # i.e. make layer above source thinner
+                            # Increasing thickness of layer will have side effect of pushing
+                            # source infinitesimally deeper. We therefore need to compensate
+                            # by making corresponding reduction in thickness of 'pseudo'-layer
+                            # above the source.
                             d_b[k!=0,i,j0+j,:4,:] -= (d_H_psv[isrc-1]@s_psv).value
                             d_b[k!=0,i,j0+j,4:,:] -= (d_H_sh[isrc-1]@s_sh).value
-                            # This is not correct if our source lies exactly at a structural interface -- likely rare...
+                            # However, now we've made the layer containing the source thinner... so
+                            # we'd best increase the thickness of the layer below the source (remember, we
+                            # split one 'true' layer into two to insert the source).
+                            d_b[k!=0,i,j0+j,:4,:] += (d_H_psv[isrc]@s_psv).value
+                            d_b[k!=0,i,j0+j,4:,:] += (d_H_sh[isrc]@s_sh).value
+                            # None of this is correct if our source lies exactly at a structural
+                            # interface -- as we wouldn't create a split layer -- likely rare...
                             # Hence warning message above
                             # Handling this properly would entail creating an additional, infinitesimal layer and re-doing propagation
                         if l<irec and rec_added:
                             # Move receiver 'up' to compensate for thicker layer above.
                             d_b[k!=0,i,j0+j,:4,:] -= (d_H_psv[irec-1]@s_psv).value
                             d_b[k!=0,i,j0+j,4:,:] -= (d_H_sh[irec-1]@s_sh).value
+                            # and increase the layer below
+                            d_b[k!=0,i,j0+j,:4,:] += (d_H_psv[irec]@s_psv).value
+                            d_b[k!=0,i,j0+j,4:,:] += (d_H_sh[irec]@s_sh).value
                             # No warning if receivers lie exactly at a structural interface: this most likely corresponds to
                             # receivers deliberately installed to coincide with interface (e.g. ocean floor).
                     j+=1
 
         del H_psv,H_sh,s_psv,s_sh
+        if do_derivatives: del d_H_psv, d_H_sh
         if determine_optimal_plan and iom==0:
             # First time through, determine optimal contraction schemes
             plan_1,_ = np.einsum_path(es1,k*k_wts,b[:,:,1,:],jvp,eimphi)
@@ -690,7 +706,6 @@ def compute_H_matrices(k,omega,dz,sigma,mu,rho,isrc,irec,do_derivatives=False):
             H_psv_drv += [((makeN(s)@N) - H_psv*makeDelta(s,basal_bc_psv))/delta]
         for Nd, b in zip(N_drv,basal_bc_psv_drv):
             H_psv_drv += [((makeN(surface_bc_psv)@Nd) - H_psv*makeDelta(surface_bc_psv,b))/delta]
-        print(len(surface_bc_sh_drv),len(basal_bc_sh_drv_at_src),len(basal_bc_sh_drv))
         for s,bsrc,b in zip(surface_bc_sh_drv,basal_bc_sh_drv_at_src,basal_bc_sh_drv):
             D1 = np.zeros([k.shape[0],2,2],dtype='complex128')
             ddelta = scm.ScaledMatrixStack(np.zeros([k.shape[0],1,1],dtype='complex128'))
@@ -876,13 +891,15 @@ def compute_static(structure,source,stations,los_vector=np.eye(3),derivatives=No
 
 class DerivativeSwitches:
     def __init__(self,moment_tensor = False, force = False,
-                      r = False, phi = False, depth = False, time = False):
+                      r = False, phi = False, depth = False, time = False,thickness = False, structure = None):
         self.moment_tensor = moment_tensor
         self.force = force
         self.r = r
         self.phi = phi
         self.depth = depth
         self.time = time
+        self.thickness = thickness
+        self.structure = structure
     @property
     def nderivs(self):
         n = 0
@@ -892,6 +909,11 @@ class DerivativeSwitches:
         if self.phi: n+=1
         if self.depth: n+=1
         if self.time: n +=1
+        if self.thickness:
+            try:
+                n += self.structure.nlayers-1 # We don't want derivatives wrt the infinite layer
+            except AttributeError:
+                raise ValueError("DerivativeSwitches object requires knowledge of earth model to enable structure derivatives. Pass `structure=<model>` at creation or set `.structure` attribute.")
         return n
     @property
     def i_mt(self):
@@ -937,6 +959,17 @@ class DerivativeSwitches:
         if self.r: i+=1
         if self.phi: i+=1
         if self.depth: i+=1
+        return i
+    @property
+    def i_thickness(self):
+        if not self.thickness: return None
+        i=0
+        if self.moment_tensor: i+=6
+        if self.force: i+=3
+        if self.r: i+=1
+        if self.phi: i+=1
+        if self.depth: i+=1
+        if self.time: i+=1
         return i
 
 ##################################
