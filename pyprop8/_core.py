@@ -1,3 +1,4 @@
+
 import numpy as np
 from pyprop8 import _scaledmatrix as scm
 import scipy.special as spec
@@ -528,7 +529,9 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
                     j+=1
 
         del H_psv,H_sh,s_psv,s_sh
-        if do_derivatives: del d_H_psv, d_H_sh
+        if do_derivatives:
+            if derivatives.thickness:
+                del d_H_psv, d_H_sh
         if determine_optimal_plan and iom==0:
             # First time through, determine optimal contraction schemes
             plan_1,_ = np.einsum_path(es1,k*k_wts,b[:,:,1,:],jvp,eimphi)
@@ -603,9 +606,9 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
         # whenever a DerivativeSwitches object has been provided -- regardless
         # of whether this actually has anything switched on. If not, d_spectra
         # will be None (see above).
-        return spectra
+        return spectra[:,:,ss,:,:]
     else:
-        return spectra, d_spectra
+        return spectra[:,:,ss,:,:], d_spectra[:,:,ss,:,:,:]
 
 
 
@@ -877,6 +880,7 @@ def compute_static(structure,source,stations,los_vector=np.eye(3),derivatives=No
         else:
             raise ValueError ("Unrecognised receiver object, type: %s"%(type(stations)))
         los_vector = los_vector/np.linalg.norm(los_vector)
+        print(es,rotator.shape,spectra.shape,los_vector.shape)
         spectra = np.einsum(es,rotator,spectra,los_vector)
         if do_derivatives: d_spectra = np.einsum(esd,rotator,d_spectra,los_vector)
     spectra = spectra.reshape(spectra.shape[:-1])
@@ -1367,6 +1371,8 @@ def propagate_zerofreq_deriv(k,dz,sigma,mu,rho,m2=None,m4=None,m6=None,inplace=T
 
 def propagate(omega,k,dz,sigma,mu,rho,m2=None,m4=None,m6=None,inplace=True):
     # Propagate the systems in m2/m4/m6 through layer.
+    if mu==0:
+        raise NotImplementedError("Propagation through fluid layer not currently implemented. If you have an ocean layer, check that your receivers are placed at or below the sea floor.")
     if np.any(k==0):
         raise ValueError("propagate does not handle k==0.")
     if omega == 0: # Special handler for zero-frequency system
