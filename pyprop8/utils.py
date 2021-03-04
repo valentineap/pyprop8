@@ -13,6 +13,16 @@ def stf_trapezoidal(omega,trise,trupt):
     uxx[wp] = (uex[wp]-1/uex[wp])/(2*uxx[wp])
     return uu*uxx
 
+def stf_boxcar(omega,tw):
+    '''Boxcar source time function with unit amplitude and width tw'''
+    uxx = np.ones(omega.shape,dtype='complex128')
+    uex=np.ones_like(uxx)
+    wp = omega!=0
+    uxx[wp] = 1j*omega[wp]*tw/2
+    uex[wp] = np.exp(uxx[wp])
+    uxx[wp] = (uex[wp]-1/uex[wp])/(2*uxx[wp])
+    return uxx
+
 def clp_filter(w,w0,w1):
     '''Cosine low-pass filter'''
     if np.real(w)<w0:
