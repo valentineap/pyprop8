@@ -1,7 +1,13 @@
 import numpy as np
 
 def stf_trapezoidal(omega,trise,trupt):
-    '''Trapezoidal source time function'''
+    '''Trapezoidal source time function. This routine is a copy of one
+    in TBO'T's Matlab code, which is itself apparently derived from AXITRA.
+    The spectrum coded here appears to be the Fourier Transform of the
+    convolution of two unit-area boxcars, one of which is non-zero in the
+    range [0,trise], and the other of which is non-zero in the range
+    [-trupt/2, trupt/2].
+    '''
     uu = np.ones(omega.shape,dtype='complex128')
     uxx = np.ones_like(uu)
     uex=np.ones_like(uu)
@@ -25,6 +31,7 @@ def stf_boxcar(omega,tw):
 
 def clp_filter(w,w0,w1):
     '''Cosine low-pass filter'''
+    if w1 <= w0: raise ValueError("clp_filter upper corner frequency must be greater than lower corner!")
     if np.real(w)<w0:
         return 1.
     elif np.real(w)<w1:
