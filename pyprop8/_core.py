@@ -286,8 +286,9 @@ class RegularlyDistributedReceivers(ReceiverSet):
 
 
 class ListOfReceivers(ReceiverSet):
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
         super().__init__()
+        if len(args)>0 or len(kwargs)>0: self.from_xy(*args,**kwargs)
     def from_xy(self,xx,yy,x0=0,y0=0,depth=0):
         assert xx.shape[0] == yy.shape[0]
         self.nr  = xx.shape[0]
