@@ -57,9 +57,15 @@ def make_moment_tensor(strike,dip,rake,M0,eta,xtr):
 def rtf2xyz(M):
     '''Convert a moment tensor specified in an (r,theta,phi) coordinate system
     into one specified in an (x,y,z-up) system'''
-    M2 = np.zeros_like(M)
-    M2[0:2,0:2] = M[1:3,1:3]
-    M2[0:2,2] = M[0,1:3]
-    M2[2,0:2] = M[1:3,0]
-    M2[2,2] = M[0,0]
+    # M2 = np.zeros_like(M)
+    # M2[0:2,0:2] = M[1:3,1:3]
+    # M2[0:2,2] = M[0,1:3]
+    # M2[2,0:2] = M[1:3,0]
+    # M2[2,2] = M[0,0]
+    # # M2[1,:]*=-1
+    # # M2[:,1]*=-1
+
+    M2 = np.array([[M[2,2],-M[2,1],M[2,0]],
+                   [-M[1,2],M[1,1],-M[1,0]],
+                   [M[0,2],-M[0,1],M[0,0]]])
     return M2
