@@ -295,7 +295,7 @@ class ListOfReceivers(ReceiverSet):
         self.rr = np.zeros(self.nr)
         self.pp = np.zeros(self.nr)
         self.rr = np.sqrt((xx-x0)**2 + (yy-y0)**2)
-        self.pp = np.arctan2(yy,xx)
+        self.pp = np.arctan2(yy-y0,xx-x0)
         self.depth = depth
     def copy(self):
         other = ListOfReceivers()
@@ -599,17 +599,20 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
         if show_progress: t.update(1)
     if show_progress:
         t.close()
-    if squeeze_outputs:
-        spectra = spectra.squeeze()
-        if do_derivatives: d_spectra = d_spectra.squeeze()
     if derivatives is None:
         # Test is NOT on do_derivatives as we want to return two objects
         # whenever a DerivativeSwitches object has been provided -- regardless
         # of whether this actually has anything switched on. If not, d_spectra
         # will be None (see above).
-        return spectra[:,:,ss,:,:]
+        if squeeze_outputs:
+            return spectra[:,:,ss,:,:].squeeze()
+        else:
+            return spectra[:,:,ss,:,:]
     else:
-        return spectra[:,:,ss,:,:], d_spectra[:,:,ss,:,:,:]
+        if squeeze_outputs:
+            return spectra[:,:,ss,:,:].squeeze(), d_spectra[:,:,ss,:,:,:].squeeze()
+        else:
+            return spectra[:,:,ss,:,:], d_spectra[:,:,ss,:,:,:]
 
 
 
@@ -771,35 +774,49 @@ def compute_seismograms(structure, source, stations, nt,dt,alpha=None,
     if type(stations) is RegularlyDistributedReceivers:
         ess = 'srpcw,w->srpcw'
         essd = 'srpdcw,w->srpdcw'
+        est = 'ut,srpct,t->srpcu'
+        estd = 'ut,srpdct,t->srpdcu'
     elif type(stations) is ListOfReceivers:
         ess = 'srcw,w->srcw'
         essd = 'srdcw,w->srdcw'
+        est = 'ut,srct,t->srcu'
+        estd = 'ut,srdct,t->srdcu'
     else:
         raise ValueError("Unrecognised receiver object, type: %s"%(type(stations)))
     spec_shape_n = len(spectra.shape)
-    if kind == 'displacement':
-        spectra = np.einsum(ess,spectra,-1j/ww)
-        if do_derivatives:d_spectra = np.einsum(essd,d_spectra,-1j/ww)
-    elif kind == 'velocity':
-        pass
-    elif kind == 'acceleration':
-        spectra = np.einsum(ess,spectra,1j*ww)
-        if do_derivatives: d_spectra = np.einsum(essd,d_spectra,1j*ww)
-    else:
-        raise ValueError("Unrecognised seismogram kind '%s'; should be one of 'displacement', 'velocity' or 'acceleration'."%kind)
+    ####
     if source_time_function is not None:
         stf = np.zeros(ww.shape[0],dtype='complex128')
         for i,w in enumerate(ww):
             stf[i] = source_time_function(w)
         spectra = np.einsum(ess,spectra,stf)
         if do_derivatives: d_spectra = np.einsum(essd,d_spectra,stf)
-    # Inverse FFT
-    seis = (nt+npad)*delta_omega*np.fft.irfft(spectra)/(2*np.pi)
-    # Discard 'padding' and scale by exp(alpha t)
-    seis = seis[tuple((spec_shape_n-1)*[slice(None)]+[slice(None,nt)])]*np.exp(alpha*tt[:nt]).reshape((spec_shape_n-1)*[1]+[-1])
-    if do_derivatives:
-        deriv = (nt+npad)*delta_omega*np.fft.irfft(d_spectra)/(2*np.pi)
-        deriv = deriv[tuple((spec_shape_n)*[slice(None)]+[slice(None,nt)])]*np.exp(alpha*tt[:nt]).reshape((spec_shape_n)*[1]+[-1])
+    if kind == 'displacement':
+        # Fourier integration -- transform without 1/(i w) and then integrate
+        stencil = np.tril(np.full([nt,nt+npad],dt,dtype='float64'))
+        stencil[np.arange(nt),np.arange(nt)] *= 0.5
+        stencil[:,0] *= 0.5
+        stencil[0,0] = 0
+        seis = (nt+npad)*delta_omega*np.fft.irfft(spectra,nt+npad)/(2*np.pi)
+        seis = np.einsum(est,stencil,seis,np.exp(alpha*tt))
+        if do_derivatives:
+            deriv = (nt+npad)*delta_omega*np.fft.irfft(d_spectra,nt+npad)/(2*np.pi)
+            deriv = np.einsum(estd,stencil,deriv,np.exp(alpha*tt))
+    # This doesn't seem to be very stable. I wonder if the better way to get
+    # velocity is to force the user to do it themselves -- get a time series and then
+    # differentiate as required.
+    # elif kind == 'velocity':
+    #     stencil = np.zeros([nt,nt+npad],dtype='float64')
+    #     stencil[np.arange(nt),np.arange(nt)] = 1.
+    #     seis = (nt+npad)*delta_omega*np.fft.irfft(spectra)/(2*np.pi)
+    #     seis = np.einsum('ut,srpct,t->srpcu',stencil,seis,np.exp(alpha*tt))
+    #     if do_derivatives:
+    #         deriv = (nt+npad)*delta_omega*np.fft.irfft(d_spectra)/(2*np.pi)
+    #         deriv = np.einsum('ut,srpdct,t->srpdcu',stencil,deriv,np.exp(alpha*tt))
+    # elif kind == 'acceleration':
+    #       this would be as velocity but scaled by another factor of (i w)
+    else:
+        raise NotImplementedError(kind)
     if xyz:
         # Rotate from (radial/transverse/z to xyz (enz))
         if type(stations) is RegularlyDistributedReceivers:
@@ -880,7 +897,7 @@ def compute_static(structure,source,stations,los_vector=np.eye(3),derivatives=No
             rotator[:,:,2,2] = 1
         else:
             raise ValueError ("Unrecognised receiver object, type: %s"%(type(stations)))
-        los_vector = los_vector/np.linalg.norm(los_vector)
+        los_vector = los_vector/np.linalg.norm(los_vector,axis=0)
         print(es,rotator.shape,spectra.shape,los_vector.shape)
         spectra = np.einsum(es,rotator,spectra,los_vector)
         if do_derivatives: d_spectra = np.einsum(esd,rotator,d_spectra,los_vector)

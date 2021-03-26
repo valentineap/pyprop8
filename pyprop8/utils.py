@@ -19,6 +19,12 @@ def stf_trapezoidal(omega,trise,trupt):
     uxx[wp] = (uex[wp]-1/uex[wp])/(2*uxx[wp])
     return uu*uxx
 
+def stf_cosine(omega,thalf):
+    return np.pi**2*np.sin(omega*thalf)/(omega*thalf*(np.pi**2 - (omega*thalf)**2))
+
+def stf_boxcar(omega,thalf):
+    return np.sin(omega*thalf)/(omega*thalf)
+
 def clp_filter(w,w0,w1):
     '''Cosine low-pass filter'''
     if w1 <= w0: raise ValueError("clp_filter upper corner frequency must be greater than lower corner!")
@@ -69,3 +75,11 @@ def rtf2xyz(M):
                    [-M[1,2],M[1,1],-M[1,0]],
                    [M[0,2],-M[0,1],M[0,0]]])
     return M2
+
+def latlon2xy(lat,lon,centre_lat,centre_lon,radius=6371.0):
+    '''Convert latitude/longitude to a local Cartesian coordinate system assuming spherical Earth'''
+    dlat = np.deg2rad(lat - centre_lat)
+    dlon = np.deg2rad(lon - centre_lon)
+    x = radius*np.cos(np.deg2rad(centre_lat))*dlon
+    y = radius*dlat
+    return x,y
