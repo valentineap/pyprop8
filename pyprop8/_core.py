@@ -6,6 +6,14 @@ from tqdm.autonotebook import tqdm
 import warnings
 
 
+def gc_dist(lat1,lon1,lat2,lon2,radius=6371.):
+    dlat = lat2-lat1
+    dlon = lon2-lon1
+    return 2*radius*np.arcsin(np.sqrt(np.sin(dlat/2)**2 + np.cos(lat1)*np.cos(lat2)*np.sin(dlon/2)**2))
+def gc_azimuth(lat1,lon1,lat2,lon2):
+    '''Azimuth cw from North to go *to* (lat2,lon2) from (lat1,lon1)'''
+    dlon = lon2-lon1
+    return np.arctan2(np.cos(lat2)*np.sin(dlon),np.cos(lat1)*np.sin(lat2)-np.sin(lat1)*np.cos(lat2)*np.cos(dlon))
 
 
 class PointSource:
@@ -16,11 +24,14 @@ class PointSource:
     and force vectors may be specified, in which case calculations
     will be performed for each separately.
     '''
-    def __init__(self,lat,lon,dep,Mxyz,F,time):
+    def __init__(self,x,y,dep,Mxyz,F,time):
         '''
         Create a point source object.
         Inputs:
-        lat,lon,dep - float: spatial location of point source
+        x,y - float: spatial location of point source. May be interpreted
+            as Cartesian x/y or as spherical lon/lat, depending on ReceiverSet
+            object and its `geometry` parameter.
+        dep - float: depth of point source, km.
         Mxyz - ndarray, shape (3x3) or shape (nsources x 3x3): moment tensor(s)
             expressed in a Cartesian (z-up) system. See `utils.rtf2xyz()` for a
             routine to convert moment tensors expressed relative to a spherical
@@ -35,8 +46,8 @@ class PointSource:
         time - datetime.datetime: the instant of rupture.
 
         '''
-        self.lat = lat
-        self.lon = lon
+        self.x = x
+        self.y = y
         self.dep = dep
         self.time = time
         assert len(Mxyz.shape)==len(F.shape),"Mxyz and F should have matching numbers of dimensions"
@@ -55,7 +66,7 @@ class PointSource:
             raise ValueError("Moment tensor should be (Nx)3x3")
     def copy(self):
         '''Return a duplicate of this PointSource object'''
-        return PointSource(self.lat,self.lon,self.dep,self.Mxyz,self.F,self.time)
+        return PointSource(self.x,self.y,self.dep,self.Mxyz,self.F,self.time)
 class LayeredStructureModel:
     '''Class to represent a layered earth model.'''
     def __init__(self,layers=None,interface_depth_form=False):
@@ -242,38 +253,56 @@ class ReceiverSet:
 
 class RegularlyDistributedReceivers(ReceiverSet):
     '''
-    A set of receivers distributed regularly in polar coordinates: receivers
-    lie on a set of equi-distant concentric circles centred on the origin, and
-    at equally-distributed azimuths. With `nr` radii and `nphi` azimuths, there
-    are a total of (nr x nphi) receivers. This regularity enables faster
-    computation and is useful if general characterisation of the wavefield is
-    required.
+    A set of receivers distributed regularly in (cylindrical) polar coordinates:
+    receivers lie on a set of equi-distant concentric circles centred on the
+    origin, and at equally-distributed azimuths. With `nr` radii and `nphi`
+    azimuths, there are a total of (nr x nphi) receivers. This regularity
+    enables faster computation and is useful if general characterisation of the
+    wavefield is required.
     '''
-    def __init__(self,*args,**kwargs):
-        '''
-        Create a receiver object. If any arguments are provided, they are passed
-        to the `from_ranges()` function. Otherwise, an 'empty' receiver object
-        is created.
+    def __init__(self,rmin=30,rmax=200,nr=18,phimin=0,phimax=360,nphi=36,depth=0,x0=0,y0=0,degrees=True):
+        '''Create a set of receivers distributed regularly in cylindrical polar
+        coordinates.
+        Inputs:
+        rmin,rmax - Minimum and maximum radii to consider (inclusive; km)
+        nr - number of radii to consider
+        phimin,phimax - Minimum and maximum angles to consider. Measured
+            counter-clockwise from the x (East) axis, when viewed from above.
+            May be specified in degrees or radians (see `degrees` argument)
+        nphi - Number of angles to consider
+        depth - Depth of burial of receivers (km)
+        x0,y0 - Coordinates of the origin point about which the receivers are
+            to be distributed. These are used for (only) two purposes:
+            (i)  To verify the requirement that the source location coincide
+                 with the symmetry axis; and
+            (ii) To generate appropriate Cartesian coordinates when .to_xy() is
+                 called.
+        degrees - True if angles are specified in degrees; False if in radians.
         '''
         super().__init__()
-        if len(args)>0 or len(kwargs)>0: self.from_ranges(*args,**kwargs)
-    def from_ranges(self,rmin,rmax,nr,phimin,phimax,nphi,depth = 0, degrees=True):
+        self.rmin = rmin
+        self.rmax = rmax
         self.nr = nr
+        self.phimin = phimin
+        self.phimax = phimax
         self.nphi = nphi
-        self.rr = np.linspace(rmin,rmax,nr)
-        self.pp = np.linspace(phimin,phimax,nphi)
         self.depth = depth
-        if degrees: self.pp = np.deg2rad(self.pp)
-    def as_xy(self,x0=0,y0=0):
-        return x0+np.outer(self.rr,np.cos(self.pp)),y0+np.outer(self.rr,np.sin(self.pp))
-    def copy(self):
-        other = RegularlyDistributedReceivers()
-        other.nr = self.nr
-        other.nphi = self.nphi
-        other.rr = self.rr.copy()
-        other.pp = self.pp.copy()
-        other.depth = self.depth
-        return other
+        self.x0 = x0
+        self.y0 = y0
+        self.degrees = degrees
+        self.rr = None
+        self.pp = None
+    def generate_rphi(self,event_x,event_y):
+        if event_x != self.x0 or event_y != self.y0:
+            raise ValueError("RegularlyDistributedReceivers may only be used for events located on the central axis."
+                             "Either (i) Check that x0/y0 parameters of RegularlyDistributedReceivers are set appropriately, or"
+                             "      (ii) Specify your stations using ListOfReceivers")
+        self.rr = np.linspace(self.rmin,self.rmax,self.nr)
+        self.pp = np.linspace(self.phimin,self.phimax,self.nphi)
+        if self.degrees: self.pp = np.deg2rad(self.pp)
+    def as_xy(self):
+        if self.rr is None or self.pp is None: self.generate_rphi()
+        return self.x0+np.outer(self.rr,np.cos(self.pp)),self.y0+np.outer(self.rr,np.sin(self.pp))
     @property
     def nDim(self):
         n = 0
@@ -286,24 +315,32 @@ class RegularlyDistributedReceivers(ReceiverSet):
 
 
 class ListOfReceivers(ReceiverSet):
-    def __init__(self, *args, **kwargs):
-        super().__init__()
-        if len(args)>0 or len(kwargs)>0: self.from_xy(*args,**kwargs)
-    def from_xy(self,xx,yy,x0=0,y0=0,depth=0):
+    def __init__(self,xx,yy,depth=0,geometry='cartesian'):
+        '''Create receivers at known locations. If `geometry='cartesian'`,
+        provide arrays of x and y values. If `geometry='spherical'` provide
+        array of longitude as xx and latitude as yy. The `geometry` parameter
+        also governs the interpretation of the location coordinates within the
+        event object: if `geometry='spherical'` these are also assumed to be
+        longitude/latitude.
+        '''
         assert xx.shape[0] == yy.shape[0]
-        self.nr  = xx.shape[0]
-        self.rr = np.zeros(self.nr)
-        self.pp = np.zeros(self.nr)
-        self.rr = np.sqrt((xx-x0)**2 + (yy-y0)**2)
-        self.pp = np.arctan2(yy-y0,xx-x0)
+        self.xx = xx
+        self.yy =yy
         self.depth = depth
-    def copy(self):
-        other = ListOfReceivers()
-        other.nr = self.nr
-        other.rr = self.rr.copy()
-        other.pp = self.pp.copy()
-        other.depth = self.depth
-        return other
+        self.nr = None
+        self.pp = None
+        self.rr = None
+        self.geometry = geometry
+    def generate_rphi(self,event_x,event_y):
+        self.nr  = self.xx.shape[0]
+        if self.geometry == 'cartesian':
+            self.rr = np.sqrt((self.xx-event_x)**2 + (self.yy-event_y)**2)
+            self.pp = np.arctan2(yy-event_y,xx-event_x)
+        elif self.geometry == 'spherical':
+            self.rr = gc_dist(np.deg2rad(self.yy),np.deg2rad(self.xx),np.deg2rad(event_y),np.deg2rad(event_x))
+            self.pp = np.pi/2 - gc_azimuth(np.deg2rad(event_y),np.deg2rad(event_x),np.deg2rad(self.yy),np.deg2rad(self.xx))
+        else:
+            raise ValueError("Unrecognised value for 'geometry' parameter of ListOfReceivers")
     @property
     def nDim(self):
         n = 0
@@ -383,6 +420,7 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
 
 
     """
+    stations.generate_rphi(source.x,source.y)
     stations.validate()
     omegas = np.atleast_1d(omegas)
     nomegas = omegas.shape[0]

@@ -182,9 +182,8 @@ plt.show()
 # enable this to be reconstructed. The following gives results that are clearly
 # close to the original, but not identical.
 
-x,y = latlon2xy(36.493270697,22.383514667,36.24,21.79)
-stations = pp.ListOfReceivers(np.array([x]),np.array([y]),depth=3)
-source = pp.PointSource(0,0,30,rtf2xyz(make_moment_tensor(332,6,120,2.4E7,0,0)),np.zeros([3,1]), 0.)
+stations = pp.ListOfReceivers(np.array([22.383514667]),np.array([36.493270697]),depth=3,geometry='spherical')
+source = pp.PointSource(21.79,36.24,30,rtf2xyz(make_moment_tensor(332,6,120,2.4E7,0,0)),np.zeros([3,1]), 0.)
 tt,seis = pp.compute_seismograms(model_table_1,source,stations,240,0.5,xyz=True,source_time_function=lambda w:stf_cosine(w,4.5)*(1-np.exp(-1j*w*5))/(5*1j*w))
 fig = plt.figure()
 ax = fig.add_subplot(111)
