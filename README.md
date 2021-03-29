@@ -82,7 +82,7 @@ m3 = pp.LayeredStructureModel(model_array,interface_depth_form = False)
 A visual representation of the layers and their properties can be obtained by calling `print()` on any instance of `LayeredStructureModel`, and may be useful for verifying that everything is as intended.
 
 ### Specifying sources
-A seismic source is represented as an instance of `PointSource`, and both moment tensor and force vector representations are supported. The moment tensor is expressed relative to a Cartesian coordinate system (x,y,z). If using catalogue source parameters, these are likely to be expressed in a spherical coordinate system (r,theta,phi); a conversion function is provided as `pyprop8.utils.rtf2xyz()`. In addition, a routine to generate moment tensors from (strike,dip,rake,moment) is available, `pyprop8.utils.make_moment_tensor()`.
+A seismic source is represented as an instance of `PointSource`, and both moment tensor and force vector representations are supported. The moment tensor is expressed relative to a Cartesian coordinate system (x,y,z). If using catalogue source parameters, these are likely to be expressed in a spherical coordinate system (r,theta,phi); a conversion function is provided as `pyprop8.utils.rtf2xyz()`. In addition, a routine to generate (r, theta,phi) moment tensors from (strike,dip,rake,moment) is available, `pyprop8.utils.make_moment_tensor()`.
 
 Once the moment tensor and force vector have been obtained, creating the `PointSource` object is straightforward:
 ```python
@@ -90,7 +90,7 @@ Mxyz = np.array([3,3])
 Mxyz[:,:] = ...
 F = np.array([3,1])
 F[:,0] = ...
-source = pp.PointSource(event_latitude, event_longitude, event_depth,
+source = pp.PointSource(event_x, event_y, event_depth,
                         Mxyz, F, event_time)
 ```
 Note that the moment tensor and force vector here are deemed to act *simultaneously*. In most circumstances one or other of these should be set to `np.zeros(...)`.
@@ -100,21 +100,22 @@ If one wishes to evaluate seismograms for multiple distinct moment tensors/force
 ### Specifying receivers
 Two different paradigms can be used for specifying receiver locations. If one wishes to obtain a comprehensive sampling of the seismic wavefield (e.g. for visualisation purposes), `RegularlyDistributedReceivers` provides a set of receivers distributed on a regular grid in polar coordinates (i.e. where, given a list of radii and a list of azimuths, a receiver exists for every possible (radius, azimuth) pair). `pyprop8` is then able to exploit this regularity to accelerate computations. Alternatively, if one wishes to sample the wavefield at specific arbitrary locations (e.g. those corresponding to real observations), `ListOfReceivers` should be used.
 
-For advanced use, both `RegularlyDistributedReceivers` and `ListOfReceivers` can be initialised without arguments to yield an 'empty' object, which can then be populated as required. In general, however, it is anticipated that they will be constructed as follows:
-- `stations = RegularlyDistributedReceivers(rmin,rmax,nr,phimin,phimax,nphi,depth=depth,degrees=phi_is_degrees)`, where
+Initialisation is as follows:
+- `stations = RegularlyDistributedReceivers(rmin,rmax,nr,phimin,phimax,nphi,depth=depth,x0=x0,y0,degrees=phi_is_degrees)`, where
   - `rmin,rmax`: minimum and maximum radii at which to place receivers;
   - `nr`: number of equally-spaced radii to generate in specified range;
-  - `phimin,phimax`: minimum and maximum azimuths;
+  - `phimin,phimax`: minimum and maximum azimuths, measured anticlockwise from the x (East) axis;
   - `nphi`: number of equally-spaced azimuths to generate in specified range;
   - `depth`: depth at which receivers lie within model (km). Default: 0.
+  - `x0, y0`: Location of polar origin in global Cartesian system. Must coincide with event location.
   - `phi_is_degrees`: boolean, True if `phimin` and `phimax` are specified in degrees, False if in radians. Default: degrees.
 
   For convenience, the resulting object provdes a function `stations.as_xy()` which returns the Cartesian coordinates of each station.
-- `stations = ListOfReceivers(xlocations,ylocations,x0=x0,y0=y0,depth=depth)`, where
+- `stations = ListOfReceivers(xlocations,ylocations,depth=depth,geometry=geometry)`, where
   - `xlocations`: list or 1D array containing x-coordinates of each receiver;
   - `ylocations`: list or 1D array containing y-coordinates of each receiver (in the same order, so that the Nth element of each list refers to the same receiver);
-  - `x0,y0`: coordinates of the axis of (assumed) cylindrical symmetry (which must correspond to the source coordinates). Default: (0,0);
   - `depth`: depth at which receivers lie within model (km). Default: 0.
+  - `geometry`: Whether locations should be interpreted as x/y coordinates in a Cartesian geometry (`geometry='cartesian'`), or as lon/lat (*note order!*) coordinates in a spherical geometry (`geometry='spherical'`). This choice also governs the interpretation of the event location coordinates.
 
 It will be noted that in either case, receivers must all lie at a single depth. In the event that multiple receiver depths must be handled, it will be necessary to create multiple receiver objects and call the computational routines on each individually.
 
