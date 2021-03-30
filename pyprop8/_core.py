@@ -5,11 +5,15 @@ import scipy.special as spec
 from tqdm.autonotebook import tqdm
 import warnings
 
+PLANETARY_RADIUS=6371.
 
-def gc_dist(lat1,lon1,lat2,lon2,radius=6371.):
+def gc_dist(lat1,lon1,lat2,lon2,radius=PLANETARY_RADIUS):
     dlat = lat2-lat1
     dlon = lon2-lon1
-    return 2*radius*np.arcsin(np.sqrt(np.sin(dlat/2)**2 + np.cos(lat1)*np.cos(lat2)*np.sin(dlon/2)**2))
+
+    u = np.sin(dlat/2)**2 + np.cos(lat1)*np.cos(lat2)*np.sin(dlon/2)**2
+    dist = 2*radius*np.arcsin(np.sqrt(u))
+    return dist
 def gc_azimuth(lat1,lon1,lat2,lon2):
     '''Azimuth cw from North to go *to* (lat2,lon2) from (lat1,lon1)'''
     dlon = lon2-lon1
@@ -302,7 +306,7 @@ class RegularlyDistributedReceivers(ReceiverSet):
         if self.degrees: self.pp = np.deg2rad(self.pp)
     def as_xy(self):
         if self.rr is None or self.pp is None: self.generate_rphi()
-        return self.x0+np.outer(self.rr,np.cos(self.pp)),self.y0+np.outer(self.rr,np.sin(self.pp))
+        return (self.x0+np.outer(self.rr,np.cos(self.pp))),(self.y0+np.outer(self.rr,np.sin(self.pp)))
     @property
     def nDim(self):
         n = 0
@@ -325,7 +329,7 @@ class ListOfReceivers(ReceiverSet):
         '''
         assert xx.shape[0] == yy.shape[0]
         self.xx = xx
-        self.yy =yy
+        self.yy = yy
         self.depth = depth
         self.nr = None
         self.pp = None
@@ -341,6 +345,8 @@ class ListOfReceivers(ReceiverSet):
             self.pp = np.pi/2 - gc_azimuth(np.deg2rad(event_y),np.deg2rad(event_x),np.deg2rad(self.yy),np.deg2rad(self.xx))
         else:
             raise ValueError("Unrecognised value for 'geometry' parameter of ListOfReceivers")
+    def as_xy(self):
+        return self.xx.reshape(-1,1),self.yy.reshape(-1,1)
     @property
     def nDim(self):
         n = 0
@@ -456,12 +462,16 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
                               [[0,1,0],[1,0,0],[0,0,0]],[[0,0,1],[0,0,0],[1,0,0]],[[0,0,0],[0,0,1],[0,1,0]]],dtype='float64')
         if derivatives.force:
             d_F = np.array([[[1],[0],[0]],[[0],[1],[0]],[[0],[0],[1]]],dtype='float64')
-        if derivatives.r:
+        if derivatives.r or derivatives.x or derivatives.y:
             djvp_dr = spec.jvp(np.tile(mm,nr*nk),np.outer(k,stations.rr).repeat(5),2).reshape(nk,nr,5)*k.reshape(-1,1,1)
     # Allocate output data arrays
     if type(stations) is RegularlyDistributedReceivers:
         spectra = np.zeros([nsources,stations.nr,stations.nphi,3,nomegas],dtype='complex128')
-        if do_derivatives: d_spectra = np.zeros([nsources,stations.nr,stations.nphi,derivatives.nderivs,3,nomegas],dtype='complex128')
+        if do_derivatives:
+            d_spectra = np.zeros([nsources,stations.nr,stations.nphi,derivatives.nderivs,3,nomegas],dtype='complex128')
+            if (derivatives.x or derivatives.y):
+                d_spectra_rphi = np.zeros([nsources,stations.nr,stations.nphi,2,3,nomegas],dtype='complex128')
+
         ss = slice(None)
         es1 = 'k,ksm,krm,mp->srp'
         es1d = 'k,ksdm,krm,mp->srpd'
@@ -470,7 +480,10 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
         es3 = 'k,ksm,krm,m,mp->srp'
     elif type(stations) is ListOfReceivers:
         spectra = np.zeros([nsources,stations.nr,1,3,nomegas],dtype='complex128')
-        if do_derivatives: d_spectra = np.zeros([nsources,stations.nr,1,derivatives.nderivs,3,nomegas],dtype='complex128')
+        if do_derivatives:
+            d_spectra = np.zeros([nsources,stations.nr,1,derivatives.nderivs,3,nomegas],dtype='complex128')
+            if (derivatives.x or derivatives.y):
+                d_spectra_rphi = np.zeros([nsources,stations.nr,1,2,3,nomegas],dtype='complex128')
         ss = 0
         es1 = 'k,ksm,krm,mr->sr'
         es1d = 'k,ksdm,krm,mr->srd'
@@ -616,6 +629,26 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
                 d_spectra[:,:,ss,j0,1,iom] = np.einsum(es2,-mm*mm,b[:,:,1,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)-\
                                 np.einsum(es3,k*k_wts,b[:,:,4,:],jvp,1j*mm,eimphi,optimize=plan_3)
                 d_spectra[:,:,ss,j0,2,iom] = np.einsum(es3,k*k_wts,b[:,:,0,:],jv,1j*mm,eimphi,optimize=plan_3)
+            if derivatives.x or derivatives.y:
+                # We need to get the r and phi derivatives one way or another...
+                if derivatives.r:
+                    d_spectra_rphi[:,:,ss,0,:,iom] = d_spectra[:,:,ss,derivatives.i_r,:,iom]
+                else:
+                    d_spectra_rphi[:,:,ss,0,0,iom] = np.einsum(es1,k*k_wts,b[:,:,1,:],djvp_dr,eimphi,optimize=plan_1) - \
+                                            np.einsum(es2,1j*mm,b[:,:,4,:],jv,rr_inv**2,k_wts,eimphi,optimize=plan_2) +\
+                                            np.einsum(es2,1j*mm,b[:,:,4,:],jvp,rr_inv,k*k_wts,eimphi,optimize=plan_2)
+                    d_spectra_rphi[:,:,ss,0,1,iom] = np.einsum(es2,-1j*mm,b[:,:,1,:],jv,rr_inv**2,k_wts,eimphi,optimize=plan_2) +\
+                                            np.einsum(es2,1j*mm,b[:,:,1,:],jvp,rr_inv,k*k_wts,eimphi,optimize=plan_2) -\
+                                            np.einsum(es1,k*k_wts,b[:,:,4,:],djvp_dr,eimphi,optimize=plan_1)
+                    d_spectra_rphi[:,:,ss,0,2,iom] = np.einsum(es1,k*k*k_wts,b[:,:,0,:],jvp,eimphi,optimize=plan_1)
+                if derivatives.phi:
+                    d_spectra_rphi[:,:,ss,1,:,iom] = d_spectra[:,:,ss,derivatives.i_phi,:,iom]
+                else:
+                    d_spectra_rphi[:,:,ss,1,0,iom] = np.einsum(es3,k*k_wts,b[:,:,1,:],jvp,1j*mm,eimphi,optimize=plan_3)+ \
+                                    np.einsum(es2,-mm*mm,b[:,:,4,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)
+                    d_spectra_rphi[:,:,ss,1,1,iom] = np.einsum(es2,-mm*mm,b[:,:,1,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)-\
+                                    np.einsum(es3,k*k_wts,b[:,:,4,:],jvp,1j*mm,eimphi,optimize=plan_3)
+                    d_spectra_rphi[:,:,ss,1,2,iom] = np.einsum(es3,k*k_wts,b[:,:,0,:],jv,1j*mm,eimphi,optimize=plan_3)
             if derivatives.depth:
                 j0 = derivatives.i_dep
                 d_spectra[:,:,ss,j0,0,iom] = np.einsum(es1,k*k_wts,d_b[:,:,j0,1,:],jvp,eimphi,optimize=plan_1)+ \
@@ -647,6 +680,21 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
         else:
             return spectra[:,:,ss,:,:]
     else:
+        if derivatives.x or derivatives.y:
+            xx,yy = stations.as_xy()
+            if derivatives.x:
+                drdx = -(xx-source.x)/stations.rr # Result will be array (nr x nphi)
+                dpdx = (yy-source.y)/(stations.rr**2)
+                d_spectra[:,:,:,derivatives.i_x,:,:] = np.einsum('srpcw,rp->srpcw',d_spectra_rphi[:,:,:,0,:,:],drdx) + np.einsum('srpcw,rp->srpcw',d_spectra_rphi[:,:,:,1,:,:],dpdx)
+            if derivatives.y:
+                drdy = -(yy-source.y)/stations.rr
+                dpdy = -(xx-source.x)/(stations.rr**2)
+                d_spectra[:,:,:,derivatives.i_y,:,:] = np.einsum('srpcw,rp->srpcw',d_spectra_rphi[:,:,:,0,:,:],drdy) + np.einsum('srpcw,rp->srpcw',d_spectra_rphi[:,:,:,1,:,:],dpdy)
+            if type(stations) is ListOfReceivers:
+                if stations.geometry=='spherical':
+                    d_spectra[:,:,:,derivatives.i_x,:,:]*=(2*np.pi*PLANETARY_RADIUS*np.cos(np.deg2rad(event.y)))/360
+                    d_spectra[:,:,:,derivatives.i_y,:,:]*=(2*np.pi*PLANETARY_RADIUS)/360
+
         if squeeze_outputs:
             return spectra[:,:,ss,:,:].squeeze(), d_spectra[:,:,ss,:,:,:].squeeze()
         else:
@@ -951,11 +999,14 @@ def compute_static(structure,source,stations,los_vector=np.eye(3),derivatives=No
 
 class DerivativeSwitches:
     def __init__(self,moment_tensor = False, force = False,
-                      r = False, phi = False, depth = False, time = False,thickness = False, structure = None):
+                      r = False, phi = False, x = False, y = False,
+                      depth = False, time = False,thickness = False, structure = None):
         self.moment_tensor = moment_tensor
         self.force = force
         self.r = r
         self.phi = phi
+        self.x = x
+        self.y = y
         self.depth = depth
         self.time = time
         self.thickness = thickness
@@ -967,6 +1018,8 @@ class DerivativeSwitches:
         if self.force: n+=3
         if self.r: n+=1
         if self.phi: n+=1
+        if self.x: n+=1
+        if self.y: n+=1
         if self.depth: n+=1
         if self.time: n +=1
         if self.thickness:
@@ -1002,6 +1055,25 @@ class DerivativeSwitches:
         if self.r: i+=1
         return i
     @property
+    def i_x(self):
+        if not self.x: return None
+        i=0
+        if self.moment_tensor: i+=6
+        if self.force: i+=3
+        if self.r: i+=1
+        if self.phi: i+=1
+        return i
+    @property
+    def i_y(self):
+        if not self.y: return None
+        i=0
+        if self.moment_tensor: i+=6
+        if self.force: i+=3
+        if self.r: i+=1
+        if self.phi: i+=1
+        if self.x: i+=1
+        return i
+    @property
     def i_dep(self):
         if not self.depth: return None
         i=0
@@ -1009,6 +1081,8 @@ class DerivativeSwitches:
         if self.force: i+=3
         if self.r: i+=1
         if self.phi: i+=1
+        if self.x: i+=1
+        if self.y: i+=1
         return i
     @property
     def i_time(self):
@@ -1018,6 +1092,8 @@ class DerivativeSwitches:
         if self.force: i+=3
         if self.r: i+=1
         if self.phi: i+=1
+        if self.x: i+=1
+        if self.y: i+=1
         if self.depth: i+=1
         return i
     @property
@@ -1028,6 +1104,8 @@ class DerivativeSwitches:
         if self.force: i+=3
         if self.r: i+=1
         if self.phi: i+=1
+        if self.x: i+=1
+        if self.y: i+=1
         if self.depth: i+=1
         if self.time: i+=1
         return i
