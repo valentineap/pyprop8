@@ -305,7 +305,7 @@ class RegularlyDistributedReceivers(ReceiverSet):
         self.pp = np.linspace(self.phimin,self.phimax,self.nphi)
         if self.degrees: self.pp = np.deg2rad(self.pp)
     def as_xy(self):
-        if self.rr is None or self.pp is None: self.generate_rphi()
+        if self.rr is None or self.pp is None: self.generate_rphi(self.x0,self.y0)
         return (self.x0+np.outer(self.rr,np.cos(self.pp))),(self.y0+np.outer(self.rr,np.sin(self.pp)))
     @property
     def nDim(self):
@@ -339,7 +339,7 @@ class ListOfReceivers(ReceiverSet):
         self.nr  = self.xx.shape[0]
         if self.geometry == 'cartesian':
             self.rr = np.sqrt((self.xx-event_x)**2 + (self.yy-event_y)**2)
-            self.pp = np.arctan2(yy-event_y,xx-event_x)
+            self.pp = np.arctan2(self.yy-event_y,self.xx-event_x)
         elif self.geometry == 'spherical':
             self.rr = gc_dist(np.deg2rad(self.yy),np.deg2rad(self.xx),np.deg2rad(event_y),np.deg2rad(event_x))
             self.pp = np.pi/2 - gc_azimuth(np.deg2rad(event_y),np.deg2rad(event_x),np.deg2rad(self.yy),np.deg2rad(self.xx))
