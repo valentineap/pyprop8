@@ -295,7 +295,7 @@ class ListOfReceivers(ReceiverSet):
         self.rr = np.zeros(self.nr)
         self.pp = np.zeros(self.nr)
         self.rr = np.sqrt((xx-x0)**2 + (yy-y0)**2)
-        self.pp = np.arctan2(yy,xx)
+        self.pp = np.arctan2(yy-y0,xx-x0)
         self.depth = depth
     def copy(self):
         other = ListOfReceivers()
