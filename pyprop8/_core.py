@@ -6,7 +6,19 @@ import scipy.special as spec
 from tqdm import tqdm
 import warnings
 
+PLANETARY_RADIUS=6371.
 
+def gc_dist(lat1,lon1,lat2,lon2,radius=PLANETARY_RADIUS):
+    dlat = lat2-lat1
+    dlon = lon2-lon1
+
+    u = np.sin(dlat/2)**2 + np.cos(lat1)*np.cos(lat2)*np.sin(dlon/2)**2
+    dist = 2*radius*np.arcsin(np.sqrt(u))
+    return dist
+def gc_azimuth(lat1,lon1,lat2,lon2):
+    '''Azimuth cw from North to go *to* (lat2,lon2) from (lat1,lon1)'''
+    dlon = lon2-lon1
+    return np.arctan2(np.cos(lat2)*np.sin(dlon),np.cos(lat1)*np.sin(lat2)-np.sin(lat1)*np.cos(lat2)*np.cos(dlon))
 
 
 class PointSource:
@@ -17,11 +29,14 @@ class PointSource:
     and force vectors may be specified, in which case calculations
     will be performed for each separately.
     '''
-    def __init__(self,lat,lon,dep,Mxyz,F,time):
+    def __init__(self,x,y,dep,Mxyz,F,time):
         '''
         Create a point source object.
         Inputs:
-        lat,lon,dep - float: spatial location of point source
+        x,y - float: spatial location of point source. May be interpreted
+            as Cartesian x/y or as spherical lon/lat, depending on ReceiverSet
+            object and its `geometry` parameter.
+        dep - float: depth of point source, km.
         Mxyz - ndarray, shape (3x3) or shape (nsources x 3x3): moment tensor(s)
             expressed in a Cartesian (z-up) system. See `utils.rtf2xyz()` for a
             routine to convert moment tensors expressed relative to a spherical
@@ -36,8 +51,8 @@ class PointSource:
         time - datetime.datetime: the instant of rupture.
 
         '''
-        self.lat = lat
-        self.lon = lon
+        self.x = x
+        self.y = y
         self.dep = dep
         self.time = time
         assert len(Mxyz.shape)==len(F.shape),"Mxyz and F should have matching numbers of dimensions"
@@ -56,7 +71,7 @@ class PointSource:
             raise ValueError("Moment tensor should be (Nx)3x3")
     def copy(self):
         '''Return a duplicate of this PointSource object'''
-        return PointSource(self.lat,self.lon,self.dep,self.Mxyz,self.F,self.time)
+        return PointSource(self.x,self.y,self.dep,self.Mxyz,self.F,self.time)
 class LayeredStructureModel:
     '''Class to represent a layered earth model.'''
     def __init__(self,layers=None,interface_depth_form=False):
@@ -243,38 +258,56 @@ class ReceiverSet:
 
 class RegularlyDistributedReceivers(ReceiverSet):
     '''
-    A set of receivers distributed regularly in polar coordinates: receivers
-    lie on a set of equi-distant concentric circles centred on the origin, and
-    at equally-distributed azimuths. With `nr` radii and `nphi` azimuths, there
-    are a total of (nr x nphi) receivers. This regularity enables faster
-    computation and is useful if general characterisation of the wavefield is
-    required.
+    A set of receivers distributed regularly in (cylindrical) polar coordinates:
+    receivers lie on a set of equi-distant concentric circles centred on the
+    origin, and at equally-distributed azimuths. With `nr` radii and `nphi`
+    azimuths, there are a total of (nr x nphi) receivers. This regularity
+    enables faster computation and is useful if general characterisation of the
+    wavefield is required.
     '''
-    def __init__(self,*args,**kwargs):
-        '''
-        Create a receiver object. If any arguments are provided, they are passed
-        to the `from_ranges()` function. Otherwise, an 'empty' receiver object
-        is created.
+    def __init__(self,rmin=30,rmax=200,nr=18,phimin=0,phimax=360,nphi=36,depth=0,x0=0,y0=0,degrees=True):
+        '''Create a set of receivers distributed regularly in cylindrical polar
+        coordinates.
+        Inputs:
+        rmin,rmax - Minimum and maximum radii to consider (inclusive; km)
+        nr - number of radii to consider
+        phimin,phimax - Minimum and maximum angles to consider. Measured
+            counter-clockwise from the x (East) axis, when viewed from above.
+            May be specified in degrees or radians (see `degrees` argument)
+        nphi - Number of angles to consider
+        depth - Depth of burial of receivers (km)
+        x0,y0 - Coordinates of the origin point about which the receivers are
+            to be distributed. These are used for (only) two purposes:
+            (i)  To verify the requirement that the source location coincide
+                 with the symmetry axis; and
+            (ii) To generate appropriate Cartesian coordinates when .to_xy() is
+                 called.
+        degrees - True if angles are specified in degrees; False if in radians.
         '''
         super().__init__()
-        if len(args)>0 or len(kwargs)>0: self.from_ranges(*args,**kwargs)
-    def from_ranges(self,rmin,rmax,nr,phimin,phimax,nphi,depth = 0, degrees=True):
+        self.rmin = rmin
+        self.rmax = rmax
         self.nr = nr
+        self.phimin = phimin
+        self.phimax = phimax
         self.nphi = nphi
-        self.rr = np.linspace(rmin,rmax,nr)
-        self.pp = np.linspace(phimin,phimax,nphi)
         self.depth = depth
-        if degrees: self.pp = np.deg2rad(self.pp)
-    def as_xy(self,x0=0,y0=0):
-        return x0+np.outer(self.rr,np.cos(self.pp)),y0+np.outer(self.rr,np.sin(self.pp))
-    def copy(self):
-        other = RegularlyDistributedReceivers()
-        other.nr = self.nr
-        other.nphi = self.nphi
-        other.rr = self.rr.copy()
-        other.pp = self.pp.copy()
-        other.depth = self.depth
-        return other
+        self.x0 = x0
+        self.y0 = y0
+        self.degrees = degrees
+        self.rr = None
+        self.pp = None
+    def generate_rphi(self,event_x,event_y):
+        if event_x != self.x0 or event_y != self.y0:
+            raise ValueError("RegularlyDistributedReceivers may only be used for events located on the central axis."
+                             "Either (i) Check that x0/y0 parameters of RegularlyDistributedReceivers are set appropriately, or"
+                             "      (ii) Specify your stations using ListOfReceivers")
+        self.rr = np.linspace(self.rmin,self.rmax,self.nr)
+        self.pp = np.linspace(self.phimin,self.phimax,self.nphi)
+        if self.degrees: self.pp = np.deg2rad(self.pp)
+    def as_xy(self):
+        if self.rr is None or self.pp is None: self.generate_rphi()
+        return (self.x0+np.outer(self.rr,np.cos(self.pp))),(self.y0+np.outer(self.rr,np.sin(self.pp)))
     @property
     def nDim(self):
         n = 0
@@ -287,23 +320,34 @@ class RegularlyDistributedReceivers(ReceiverSet):
 
 
 class ListOfReceivers(ReceiverSet):
-    def __init__(self):
-        super().__init__()
-    def from_xy(self,xx,yy,x0=0,y0=0,depth=0):
+    def __init__(self,xx,yy,depth=0,geometry='cartesian'):
+        '''Create receivers at known locations. If `geometry='cartesian'`,
+        provide arrays of x and y values. If `geometry='spherical'` provide
+        array of longitude as xx and latitude as yy. The `geometry` parameter
+        also governs the interpretation of the location coordinates within the
+        event object: if `geometry='spherical'` these are also assumed to be
+        longitude/latitude.
+        '''
         assert xx.shape[0] == yy.shape[0]
-        self.nr  = xx.shape[0]
-        self.rr = np.zeros(self.nr)
-        self.pp = np.zeros(self.nr)
-        self.rr = np.sqrt((xx-x0)**2 + (yy-y0)**2)
-        self.pp = np.arctan2(yy-y0,xx-x0)
+        self.xx = xx
+        self.yy = yy
         self.depth = depth
-    def copy(self):
-        other = ListOfReceivers()
-        other.nr = self.nr
-        other.rr = self.rr.copy()
-        other.pp = self.pp.copy()
-        other.depth = self.depth
-        return other
+        self.nr = None
+        self.pp = None
+        self.rr = None
+        self.geometry = geometry
+    def generate_rphi(self,event_x,event_y):
+        self.nr  = self.xx.shape[0]
+        if self.geometry == 'cartesian':
+            self.rr = np.sqrt((self.xx-event_x)**2 + (self.yy-event_y)**2)
+            self.pp = np.arctan2(yy-event_y,xx-event_x)
+        elif self.geometry == 'spherical':
+            self.rr = gc_dist(np.deg2rad(self.yy),np.deg2rad(self.xx),np.deg2rad(event_y),np.deg2rad(event_x))
+            self.pp = np.pi/2 - gc_azimuth(np.deg2rad(event_y),np.deg2rad(event_x),np.deg2rad(self.yy),np.deg2rad(self.xx))
+        else:
+            raise ValueError("Unrecognised value for 'geometry' parameter of ListOfReceivers")
+    def as_xy(self):
+        return self.xx.reshape(-1,1),self.yy.reshape(-1,1)
     @property
     def nDim(self):
         n = 0
@@ -383,6 +427,7 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
 
 
     """
+    stations.generate_rphi(source.x,source.y)
     stations.validate()
     omegas = np.atleast_1d(omegas)
     nomegas = omegas.shape[0]
@@ -418,12 +463,16 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
                               [[0,1,0],[1,0,0],[0,0,0]],[[0,0,1],[0,0,0],[1,0,0]],[[0,0,0],[0,0,1],[0,1,0]]],dtype='float64')
         if derivatives.force:
             d_F = np.array([[[1],[0],[0]],[[0],[1],[0]],[[0],[0],[1]]],dtype='float64')
-        if derivatives.r:
+        if derivatives.r or derivatives.x or derivatives.y:
             djvp_dr = spec.jvp(np.tile(mm,nr*nk),np.outer(k,stations.rr).repeat(5),2).reshape(nk,nr,5)*k.reshape(-1,1,1)
     # Allocate output data arrays
     if type(stations) is RegularlyDistributedReceivers:
         spectra = np.zeros([nsources,stations.nr,stations.nphi,3,nomegas],dtype='complex128')
-        if do_derivatives: d_spectra = np.zeros([nsources,stations.nr,stations.nphi,derivatives.nderivs,3,nomegas],dtype='complex128')
+        if do_derivatives:
+            d_spectra = np.zeros([nsources,stations.nr,stations.nphi,derivatives.nderivs,3,nomegas],dtype='complex128')
+            if (derivatives.x or derivatives.y):
+                d_spectra_rphi = np.zeros([nsources,stations.nr,stations.nphi,2,3,nomegas],dtype='complex128')
+
         ss = slice(None)
         es1 = 'k,ksm,krm,mp->srp'
         es1d = 'k,ksdm,krm,mp->srpd'
@@ -432,7 +481,10 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
         es3 = 'k,ksm,krm,m,mp->srp'
     elif type(stations) is ListOfReceivers:
         spectra = np.zeros([nsources,stations.nr,1,3,nomegas],dtype='complex128')
-        if do_derivatives: d_spectra = np.zeros([nsources,stations.nr,1,derivatives.nderivs,3,nomegas],dtype='complex128')
+        if do_derivatives:
+            d_spectra = np.zeros([nsources,stations.nr,1,derivatives.nderivs,3,nomegas],dtype='complex128')
+            if (derivatives.x or derivatives.y):
+                d_spectra_rphi = np.zeros([nsources,stations.nr,1,2,3,nomegas],dtype='complex128')
         ss = 0
         es1 = 'k,ksm,krm,mr->sr'
         es1d = 'k,ksdm,krm,mr->srd'
@@ -578,6 +630,26 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
                 d_spectra[:,:,ss,j0,1,iom] = np.einsum(es2,-mm*mm,b[:,:,1,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)-\
                                 np.einsum(es3,k*k_wts,b[:,:,4,:],jvp,1j*mm,eimphi,optimize=plan_3)
                 d_spectra[:,:,ss,j0,2,iom] = np.einsum(es3,k*k_wts,b[:,:,0,:],jv,1j*mm,eimphi,optimize=plan_3)
+            if derivatives.x or derivatives.y:
+                # We need to get the r and phi derivatives one way or another...
+                if derivatives.r:
+                    d_spectra_rphi[:,:,ss,0,:,iom] = d_spectra[:,:,ss,derivatives.i_r,:,iom]
+                else:
+                    d_spectra_rphi[:,:,ss,0,0,iom] = np.einsum(es1,k*k_wts,b[:,:,1,:],djvp_dr,eimphi,optimize=plan_1) - \
+                                            np.einsum(es2,1j*mm,b[:,:,4,:],jv,rr_inv**2,k_wts,eimphi,optimize=plan_2) +\
+                                            np.einsum(es2,1j*mm,b[:,:,4,:],jvp,rr_inv,k*k_wts,eimphi,optimize=plan_2)
+                    d_spectra_rphi[:,:,ss,0,1,iom] = np.einsum(es2,-1j*mm,b[:,:,1,:],jv,rr_inv**2,k_wts,eimphi,optimize=plan_2) +\
+                                            np.einsum(es2,1j*mm,b[:,:,1,:],jvp,rr_inv,k*k_wts,eimphi,optimize=plan_2) -\
+                                            np.einsum(es1,k*k_wts,b[:,:,4,:],djvp_dr,eimphi,optimize=plan_1)
+                    d_spectra_rphi[:,:,ss,0,2,iom] = np.einsum(es1,k*k*k_wts,b[:,:,0,:],jvp,eimphi,optimize=plan_1)
+                if derivatives.phi:
+                    d_spectra_rphi[:,:,ss,1,:,iom] = d_spectra[:,:,ss,derivatives.i_phi,:,iom]
+                else:
+                    d_spectra_rphi[:,:,ss,1,0,iom] = np.einsum(es3,k*k_wts,b[:,:,1,:],jvp,1j*mm,eimphi,optimize=plan_3)+ \
+                                    np.einsum(es2,-mm*mm,b[:,:,4,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)
+                    d_spectra_rphi[:,:,ss,1,1,iom] = np.einsum(es2,-mm*mm,b[:,:,1,:],jv,rr_inv,k_wts,eimphi,optimize=plan_2)-\
+                                    np.einsum(es3,k*k_wts,b[:,:,4,:],jvp,1j*mm,eimphi,optimize=plan_3)
+                    d_spectra_rphi[:,:,ss,1,2,iom] = np.einsum(es3,k*k_wts,b[:,:,0,:],jv,1j*mm,eimphi,optimize=plan_3)
             if derivatives.depth:
                 j0 = derivatives.i_dep
                 d_spectra[:,:,ss,j0,0,iom] = np.einsum(es1,k*k_wts,d_b[:,:,j0,1,:],jvp,eimphi,optimize=plan_1)+ \
@@ -599,17 +671,35 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
         if show_progress: t.update(1)
     if show_progress:
         t.close()
-    if squeeze_outputs:
-        spectra = spectra.squeeze()
-        if do_derivatives: d_spectra = d_spectra.squeeze()
     if derivatives is None:
         # Test is NOT on do_derivatives as we want to return two objects
         # whenever a DerivativeSwitches object has been provided -- regardless
         # of whether this actually has anything switched on. If not, d_spectra
         # will be None (see above).
-        return spectra[:,:,ss,:,:]
+        if squeeze_outputs:
+            return spectra[:,:,ss,:,:].squeeze()
+        else:
+            return spectra[:,:,ss,:,:]
     else:
-        return spectra[:,:,ss,:,:], d_spectra[:,:,ss,:,:,:]
+        if derivatives.x or derivatives.y:
+            xx,yy = stations.as_xy()
+            if derivatives.x:
+                drdx = -(xx-source.x)/stations.rr # Result will be array (nr x nphi)
+                dpdx = (yy-source.y)/(stations.rr**2)
+                d_spectra[:,:,:,derivatives.i_x,:,:] = np.einsum('srpcw,rp->srpcw',d_spectra_rphi[:,:,:,0,:,:],drdx) + np.einsum('srpcw,rp->srpcw',d_spectra_rphi[:,:,:,1,:,:],dpdx)
+            if derivatives.y:
+                drdy = -(yy-source.y)/stations.rr
+                dpdy = -(xx-source.x)/(stations.rr**2)
+                d_spectra[:,:,:,derivatives.i_y,:,:] = np.einsum('srpcw,rp->srpcw',d_spectra_rphi[:,:,:,0,:,:],drdy) + np.einsum('srpcw,rp->srpcw',d_spectra_rphi[:,:,:,1,:,:],dpdy)
+            if type(stations) is ListOfReceivers:
+                if stations.geometry=='spherical':
+                    d_spectra[:,:,:,derivatives.i_x,:,:]*=(2*np.pi*PLANETARY_RADIUS*np.cos(np.deg2rad(event.y)))/360
+                    d_spectra[:,:,:,derivatives.i_y,:,:]*=(2*np.pi*PLANETARY_RADIUS)/360
+
+        if squeeze_outputs:
+            return spectra[:,:,ss,:,:].squeeze(), d_spectra[:,:,ss,:,:,:].squeeze()
+        else:
+            return spectra[:,:,ss,:,:], d_spectra[:,:,ss,:,:,:]
 
 
 
@@ -771,35 +861,49 @@ def compute_seismograms(structure, source, stations, nt,dt,alpha=None,
     if type(stations) is RegularlyDistributedReceivers:
         ess = 'srpcw,w->srpcw'
         essd = 'srpdcw,w->srpdcw'
+        est = 'ut,srpct,t->srpcu'
+        estd = 'ut,srpdct,t->srpdcu'
     elif type(stations) is ListOfReceivers:
         ess = 'srcw,w->srcw'
         essd = 'srdcw,w->srdcw'
+        est = 'ut,srct,t->srcu'
+        estd = 'ut,srdct,t->srdcu'
     else:
         raise ValueError("Unrecognised receiver object, type: %s"%(type(stations)))
     spec_shape_n = len(spectra.shape)
-    if kind == 'displacement':
-        spectra = np.einsum(ess,spectra,-1j/ww)
-        if do_derivatives:d_spectra = np.einsum(essd,d_spectra,-1j/ww)
-    elif kind == 'velocity':
-        pass
-    elif kind == 'acceleration':
-        spectra = np.einsum(ess,spectra,1j*ww)
-        if do_derivatives: d_spectra = np.einsum(essd,d_spectra,1j*ww)
-    else:
-        raise ValueError("Unrecognised seismogram kind '%s'; should be one of 'displacement', 'velocity' or 'acceleration'."%kind)
+    ####
     if source_time_function is not None:
         stf = np.zeros(ww.shape[0],dtype='complex128')
         for i,w in enumerate(ww):
             stf[i] = source_time_function(w)
         spectra = np.einsum(ess,spectra,stf)
         if do_derivatives: d_spectra = np.einsum(essd,d_spectra,stf)
-    # Inverse FFT
-    seis = (nt+npad)*delta_omega*np.fft.irfft(spectra)/(2*np.pi)
-    # Discard 'padding' and scale by exp(alpha t)
-    seis = seis[tuple((spec_shape_n-1)*[slice(None)]+[slice(None,nt)])]*np.exp(alpha*tt[:nt]).reshape((spec_shape_n-1)*[1]+[-1])
-    if do_derivatives:
-        deriv = (nt+npad)*delta_omega*np.fft.irfft(d_spectra)/(2*np.pi)
-        deriv = deriv[tuple((spec_shape_n)*[slice(None)]+[slice(None,nt)])]*np.exp(alpha*tt[:nt]).reshape((spec_shape_n)*[1]+[-1])
+    if kind == 'displacement':
+        # Fourier integration -- transform without 1/(i w) and then integrate
+        stencil = np.tril(np.full([nt,nt+npad],dt,dtype='float64'))
+        stencil[np.arange(nt),np.arange(nt)] *= 0.5
+        stencil[:,0] *= 0.5
+        stencil[0,0] = 0
+        seis = (nt+npad)*delta_omega*np.fft.irfft(spectra,nt+npad)/(2*np.pi)
+        seis = np.einsum(est,stencil,seis,np.exp(alpha*tt))
+        if do_derivatives:
+            deriv = (nt+npad)*delta_omega*np.fft.irfft(d_spectra,nt+npad)/(2*np.pi)
+            deriv = np.einsum(estd,stencil,deriv,np.exp(alpha*tt))
+    # This doesn't seem to be very stable. I wonder if the better way to get
+    # velocity is to force the user to do it themselves -- get a time series and then
+    # differentiate as required.
+    # elif kind == 'velocity':
+    #     stencil = np.zeros([nt,nt+npad],dtype='float64')
+    #     stencil[np.arange(nt),np.arange(nt)] = 1.
+    #     seis = (nt+npad)*delta_omega*np.fft.irfft(spectra)/(2*np.pi)
+    #     seis = np.einsum('ut,srpct,t->srpcu',stencil,seis,np.exp(alpha*tt))
+    #     if do_derivatives:
+    #         deriv = (nt+npad)*delta_omega*np.fft.irfft(d_spectra)/(2*np.pi)
+    #         deriv = np.einsum('ut,srpdct,t->srpdcu',stencil,deriv,np.exp(alpha*tt))
+    # elif kind == 'acceleration':
+    #       this would be as velocity but scaled by another factor of (i w)
+    else:
+        raise NotImplementedError(kind)
     if xyz:
         # Rotate from (radial/transverse/z to xyz (enz))
         if type(stations) is RegularlyDistributedReceivers:
@@ -880,7 +984,7 @@ def compute_static(structure,source,stations,los_vector=np.eye(3),derivatives=No
             rotator[:,:,2,2] = 1
         else:
             raise ValueError ("Unrecognised receiver object, type: %s"%(type(stations)))
-        los_vector = los_vector/np.linalg.norm(los_vector)
+        los_vector = los_vector/np.linalg.norm(los_vector,axis=0)
         print(es,rotator.shape,spectra.shape,los_vector.shape)
         spectra = np.einsum(es,rotator,spectra,los_vector)
         if do_derivatives: d_spectra = np.einsum(esd,rotator,d_spectra,los_vector)
@@ -896,11 +1000,14 @@ def compute_static(structure,source,stations,los_vector=np.eye(3),derivatives=No
 
 class DerivativeSwitches:
     def __init__(self,moment_tensor = False, force = False,
-                      r = False, phi = False, depth = False, time = False,thickness = False, structure = None):
+                      r = False, phi = False, x = False, y = False,
+                      depth = False, time = False,thickness = False, structure = None):
         self.moment_tensor = moment_tensor
         self.force = force
         self.r = r
         self.phi = phi
+        self.x = x
+        self.y = y
         self.depth = depth
         self.time = time
         self.thickness = thickness
@@ -912,6 +1019,8 @@ class DerivativeSwitches:
         if self.force: n+=3
         if self.r: n+=1
         if self.phi: n+=1
+        if self.x: n+=1
+        if self.y: n+=1
         if self.depth: n+=1
         if self.time: n +=1
         if self.thickness:
@@ -947,6 +1056,25 @@ class DerivativeSwitches:
         if self.r: i+=1
         return i
     @property
+    def i_x(self):
+        if not self.x: return None
+        i=0
+        if self.moment_tensor: i+=6
+        if self.force: i+=3
+        if self.r: i+=1
+        if self.phi: i+=1
+        return i
+    @property
+    def i_y(self):
+        if not self.y: return None
+        i=0
+        if self.moment_tensor: i+=6
+        if self.force: i+=3
+        if self.r: i+=1
+        if self.phi: i+=1
+        if self.x: i+=1
+        return i
+    @property
     def i_dep(self):
         if not self.depth: return None
         i=0
@@ -954,6 +1082,8 @@ class DerivativeSwitches:
         if self.force: i+=3
         if self.r: i+=1
         if self.phi: i+=1
+        if self.x: i+=1
+        if self.y: i+=1
         return i
     @property
     def i_time(self):
@@ -963,6 +1093,8 @@ class DerivativeSwitches:
         if self.force: i+=3
         if self.r: i+=1
         if self.phi: i+=1
+        if self.x: i+=1
+        if self.y: i+=1
         if self.depth: i+=1
         return i
     @property
@@ -973,6 +1105,8 @@ class DerivativeSwitches:
         if self.force: i+=3
         if self.r: i+=1
         if self.phi: i+=1
+        if self.x: i+=1
+        if self.y: i+=1
         if self.depth: i+=1
         if self.time: i+=1
         return i
