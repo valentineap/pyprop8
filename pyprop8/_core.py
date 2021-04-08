@@ -336,7 +336,7 @@ class ListOfReceivers(ReceiverSet):
         self.xx = xx
         self.yy = yy
         self.depth = depth
-        self.nr = None
+        self.nr = self.xx.shape[0]
         self.pp = None
         self.rr = None
         self.geometry = geometry
@@ -711,7 +711,7 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
                 d_spectra[:,:,ss,derivatives.i_y,:,:] = np.einsum(es4d,d_spectra_rphi[:,:,ss,0,:,:],drdy) + np.einsum(es4d,d_spectra_rphi[:,:,ss,1,:,:],dpdy)
             if type(stations) is ListOfReceivers:
                 if stations.geometry=='spherical':
-                    d_spectra[:,:,ss,derivatives.i_x,:,:]*=(2*np.pi*PLANETARY_RADIUS*np.cos(np.deg2rad(event.y)))/360
+                    d_spectra[:,:,ss,derivatives.i_x,:,:]*=(2*np.pi*PLANETARY_RADIUS*np.cos(np.deg2rad(source.y)))/360
                     d_spectra[:,:,ss,derivatives.i_y,:,:]*=(2*np.pi*PLANETARY_RADIUS)/360
 
         if squeeze_outputs:
