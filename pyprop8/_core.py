@@ -296,11 +296,16 @@ class RegularlyDistributedReceivers(ReceiverSet):
         self.degrees = degrees
         self.rr = None
         self.pp = None
+    def copy(self):
+        r = RegularlyDistributedReceivers(self.rmin,self.rmax,self.nr,self.phimin,self.phimax,self.nphi,self.depth,self.x0,self.y0,self.degrees)
+        return r
     def generate_rphi(self,event_x,event_y):
         if event_x != self.x0 or event_y != self.y0:
             raise ValueError("RegularlyDistributedReceivers may only be used for events located on the central axis."
                              "Either (i) Check that x0/y0 parameters of RegularlyDistributedReceivers are set appropriately, or"
                              "      (ii) Specify your stations using ListOfReceivers")
+        if self.rmax<self.rmin: raise ValueError("Minimum radius appears to exceed maximum radius!")
+        if self.phimax<self.phimin: raise ValueError("Minimum azimuth appears to exceed maximum azimuth!")
         self.rr = np.linspace(self.rmin,self.rmax,self.nr)
         self.pp = np.linspace(self.phimin,self.phimax,self.nphi)
         if self.degrees: self.pp = np.deg2rad(self.pp)
@@ -478,6 +483,7 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
         es2 = 'm,ksm,krm,r,k,mp->srp'
         es2d = 'm,ksdm,krm,r,k,mp->srpd'
         es3 = 'k,ksm,krm,m,mp->srp'
+        es4d = 'srpcw,rp->srpcw'
     elif type(stations) is ListOfReceivers:
         spectra = np.zeros([nsources,stations.nr,1,3,nomegas],dtype='complex128')
         if do_derivatives:
@@ -490,6 +496,7 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
         es2 = 'm,ksm,krm,r,k,mr->sr'
         es2d = 'm,ksdm,krm,r,k,mr->srd'
         es3 = 'k,ksm,krm,m,mr->sr'
+        es4d = 'srcw,r->srcw'
     else:
         raise NotImplementedError("Unrecognised receiver object, type: %s"%(type(stations)))
 
@@ -681,19 +688,31 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
             return spectra[:,:,ss,:,:]
     else:
         if derivatives.x or derivatives.y:
-            xx,yy = stations.as_xy()
+            #xx,yy = stations.as_xy()
             if derivatives.x:
-                drdx = -(xx-source.x)/stations.rr # Result will be array (nr x nphi)
-                dpdx = (yy-source.y)/(stations.rr**2)
-                d_spectra[:,:,:,derivatives.i_x,:,:] = np.einsum('srpcw,rp->srpcw',d_spectra_rphi[:,:,:,0,:,:],drdx) + np.einsum('srpcw,rp->srpcw',d_spectra_rphi[:,:,:,1,:,:],dpdx)
+                if type(stations) is RegularlyDistributedReceivers:
+                    drdx = np.tile(-np.cos(stations.pp),stations.nr).reshape(stations.nr,stations.nphi) # Result will be array (nr x nphi)
+                    dpdx = np.outer(1/stations.rr,np.sin(stations.pp))
+                elif type(stations) is ListOfReceivers:
+                    drdx = -np.cos(stations.pp)
+                    dpdx = np.sin(stations.pp)/stations.rr
+                else:
+                    raise NotImplementedError
+                d_spectra[:,:,ss,derivatives.i_x,:,:] = np.einsum(es4d,d_spectra_rphi[:,:,ss,0,:,:],drdx) + np.einsum(es4d,d_spectra_rphi[:,:,ss,1,:,:],dpdx)
             if derivatives.y:
-                drdy = -(yy-source.y)/stations.rr
-                dpdy = -(xx-source.x)/(stations.rr**2)
-                d_spectra[:,:,:,derivatives.i_y,:,:] = np.einsum('srpcw,rp->srpcw',d_spectra_rphi[:,:,:,0,:,:],drdy) + np.einsum('srpcw,rp->srpcw',d_spectra_rphi[:,:,:,1,:,:],dpdy)
+                if type(stations) is RegularlyDistributedReceivers:
+                    drdy = np.tile(-np.sin(stations.pp),stations.nr).reshape(stations.nr,stations.nphi)
+                    dpdy = np.outer(-1/stations.rr,np.cos(stations.pp))
+                elif type(stations) is ListOfReceivers:
+                    drdy = -np.sin(stations.pp)
+                    dpdy = -np.cos(stations.pp)/stations.rr
+                else:
+                    raise NotImplementedError
+                d_spectra[:,:,ss,derivatives.i_y,:,:] = np.einsum(es4d,d_spectra_rphi[:,:,ss,0,:,:],drdy) + np.einsum(es4d,d_spectra_rphi[:,:,ss,1,:,:],dpdy)
             if type(stations) is ListOfReceivers:
                 if stations.geometry=='spherical':
-                    d_spectra[:,:,:,derivatives.i_x,:,:]*=(2*np.pi*PLANETARY_RADIUS*np.cos(np.deg2rad(event.y)))/360
-                    d_spectra[:,:,:,derivatives.i_y,:,:]*=(2*np.pi*PLANETARY_RADIUS)/360
+                    d_spectra[:,:,ss,derivatives.i_x,:,:]*=(2*np.pi*PLANETARY_RADIUS*np.cos(np.deg2rad(event.y)))/360
+                    d_spectra[:,:,ss,derivatives.i_y,:,:]*=(2*np.pi*PLANETARY_RADIUS)/360
 
         if squeeze_outputs:
             return spectra[:,:,ss,:,:].squeeze(), d_spectra[:,:,ss,:,:,:].squeeze()
