@@ -26,8 +26,8 @@ model_table_2 = pp.LayeredStructureModel([[ 1.50, 2.20, 1.00, 2.20],
 
 ### Figure 1 ###
 # The following two specifications of station location ought to be equivalent.
-stations = pp.RegularlyDistributedReceivers(30,200,18,90,90,1,depth=3)
-#stations = pp.ListOfReceivers(xx = np.zeros(18),yy=np.linspace(30,200,18),depth=3)
+#stations = pp.RegularlyDistributedReceivers(30,200,18,90,90,1,depth=3)
+stations = pp.ListOfReceivers(xx = np.zeros(18),yy=np.linspace(30,200,18),depth=3)
 source =  pp.PointSource(0,0,34,rtf2xyz(make_moment_tensor(340,90,0,2.4E8,0,0)),np.zeros([3,1]), 0.)
 tt,seis = pp.compute_seismograms(model_table_1, source, stations, 181,.5,xyz=False,source_time_function=lambda w:stf_trapezoidal(w,3,6))
 
