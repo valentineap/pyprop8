@@ -946,8 +946,31 @@ def compute_seismograms(structure, source, stations, nt,dt,alpha=None,
             esrd = 'ric,srdct->srdit'
         else:
             raise ValueError("Unrecognised receiver object, type: %s"%(type(stations)))
+
+        if do_derivatives:
+            # s_xyz = R.s_rtf
+            # D[s_xyz] = D[R].s_rtf+R.D[s_rtf]
+            # R = [ cos(f) -sin(f) ]
+            #     [ sin(f)  cos(f) ]
+            # dR/dq = [ -sin(f) df/dq -cos(f) df/dq ]
+            #         [  cos(f) df/dq -sin(f) df/dq ]
+            deriv = np.einsum(esrd,rotator,deriv)
+            if derivatives.x:
+                if type(stations) is ListOfReceivers:
+                    dpdx = np.sin(stations.pp)/stations.rr
+                    deriv[:,:,derivatives.i_x,0,:] += np.einsum('srt,r->srt',seis[:,:,0,:],-dpdx*np.sin(stations.pp))+ np.einsum('srt,r->srt',seis[:,:,1,:],-dpdx*np.cos(stations.pp))
+                    deriv[:,:,derivatives.i_x,1,:] += np.einsum('srt,r->srt',seis[:,:,0,:], dpdx*np.cos(stations.pp))+ np.einsum('srt,r->srt',seis[:,:,1,:],-dpdx*np.sin(stations.pp))
+                else:
+                    raise NotImplementedError
+            if derivatives.y:
+                if type(stations) is ListOfReceivers:
+                    dpdy = -np.cos(stations.pp)/stations.rr
+                    deriv[:,:,derivatives.i_y,0,:] += np.einsum('srt,r->srt',seis[:,:,0,:],-dpdy*np.sin(stations.pp))+ np.einsum('srt,r->srt',seis[:,:,1,:],-dpdy*np.cos(stations.pp))
+                    deriv[:,:,derivatives.i_y,1,:] += np.einsum('srt,r->srt',seis[:,:,0,:], dpdy*np.cos(stations.pp))+ np.einsum('srt,r->srt',seis[:,:,1,:],-dpdy*np.sin(stations.pp))
+                else:
+                    raise NotImplementedError
+        # Do this rotation *after* derivatives as we need the unrotated seismograms for x/y deriv
         seis = np.einsum(esr,rotator,seis)
-        if do_derivatives: deriv = np.einsum(esrd,rotator,deriv)
     if squeeze_outputs:
         seis = seis.squeeze()
         if do_derivatives: deriv = deriv.squeeze()
