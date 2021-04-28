@@ -1,6 +1,6 @@
 import numpy as np
 import pyprop8 as pp
-from utils import stf_trapezoidal,rtf2xyz,make_moment_tensor
+from pyprop8.utils import stf_trapezoidal,rtf2xyz,make_moment_tensor
 from collections import defaultdict
 
 def test_spatial_derivatives(model,source,stations,nt=257,dt=0.5,alpha = 0.023,
@@ -56,7 +56,8 @@ def test_spatial_derivatives(model,source,stations,nt=257,dt=0.5,alpha = 0.023,
 
     if derivatives.r:
         sta_pert = stations.copy()
-        sta_pert.rr+=delta*delta_scales['r']
+        sta_pert.rmin+=delta*delta_scales['r']
+        sta_pert.rmax+=delta*delta_scales['r']
         tt,seis = pp.compute_seismograms(model,source,sta_pert,nt,dt,alpha,pad_frac = pad_frac,derivatives=None,source_time_function=source_time_function)
         fd = (seis - seis0)/(delta*delta_scales['r'])
         err = drv[deriv_comp(derivatives.i_r)]-fd
@@ -69,7 +70,8 @@ def test_spatial_derivatives(model,source,stations,nt=257,dt=0.5,alpha = 0.023,
         print("Max error, 'r' derivative:   %f%%"%(100*maxerr))
     if derivatives.phi:
         sta_pert = stations.copy()
-        sta_pert.pp+=(delta*delta_scales['phi'])
+        sta_pert.phimin+=delta*delta_scales['phi']
+        sta_pert.phimax+=delta*delta_scales['phi']
         tt,seis = pp.compute_seismograms(model,source,sta_pert,nt,dt,alpha,pad_frac = pad_frac,derivatives=None,source_time_function=source_time_function)
         fd = (seis - seis0)/(delta*delta_scales['phi'])
         err = drv[deriv_comp(derivatives.i_phi)]-fd
@@ -82,7 +84,7 @@ def test_spatial_derivatives(model,source,stations,nt=257,dt=0.5,alpha = 0.023,
         print("Max error, 'phi' derivative: %f%%"%(100*maxerr))
     if derivatives.depth:
         source_pert = source.copy()
-        source_pert.dep-=delta*(delta_scales['depth']*delta_scales['depth'])
+        source_pert.dep-=delta*delta_scales['depth']
         tt,seis = pp.compute_seismograms(model,source_pert,stations,nt,dt,alpha,pad_frac = pad_frac,derivatives=None,source_time_function=source_time_function)
         fd = (seis - seis0)/delta
         err = drv[deriv_comp(derivatives.i_dep)]-fd
