@@ -2,7 +2,8 @@
 import numpy as np
 from pyprop8 import _scaledmatrix as scm
 import scipy.special as spec
-from tqdm.autonotebook import tqdm
+#from tqdm.autonotebook import tqdm edited by MS 2/3/21 due to warning in Anaconda JupyterLab
+from tqdm import tqdm
 import warnings
 
 PLANETARY_RADIUS=6371.

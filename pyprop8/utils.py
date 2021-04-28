@@ -19,11 +19,13 @@ def stf_trapezoidal(omega,trise,trupt):
     uxx[wp] = (uex[wp]-1/uex[wp])/(2*uxx[wp])
     return uu*uxx
 
+
 def stf_cosine(omega,thalf):
     return np.pi**2*np.sin(omega*thalf)/(omega*thalf*(np.pi**2 - (omega*thalf)**2))
 
 def stf_boxcar(omega,thalf):
     return np.sin(omega*thalf)/(omega*thalf)
+
 
 def clp_filter(w,w0,w1):
     '''Cosine low-pass filter'''

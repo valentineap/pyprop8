@@ -110,8 +110,10 @@ Initialisation is as follows:
   - `x0, y0`: Location of polar origin in global Cartesian system. Must coincide with event location.
   - `phi_is_degrees`: boolean, True if `phimin` and `phimax` are specified in degrees, False if in radians. Default: degrees.
 
+
   For convenience, the resulting object provdes a function `stations.as_xy()` which returns the Cartesian coordinates of each station.
 - `stations = ListOfReceivers(xlocations,ylocations,depth=depth,geometry=geometry)`, where
+
   - `xlocations`: list or 1D array containing x-coordinates of each receiver;
   - `ylocations`: list or 1D array containing y-coordinates of each receiver (in the same order, so that the Nth element of each list refers to the same receiver);
   - `depth`: depth at which receivers lie within model (km). Default: 0.
@@ -143,7 +145,7 @@ where
 - `stencil_kwargs` is a dictionary containing any arguments required by the stencil function;
 - `squeeze_outputs` is a boolean value; set to `True` to call `np.squeeze()` on the spectra before returning, to discard any unnecessary dimensions in the array (i.e, dimensions of length 1).
 
-The function `compute_spectra` returns either one or two arrays, depending on whether derivatives are requested. The first (or only) arary contains all requested spectra. Its shape will depend on how receivers were specified. If an object of class `RegularlyDistributedReceivers` was used, then it has shape `(nsources, nr, nphi, 3, nomegas)`, where:
+The function `compute_spectra` returns either one or two arrays, depending on whether derivatives are requested. The first (or only) array contains all requested spectra. Its shape will depend on how receivers were specified. If an object of class `RegularlyDistributedReceivers` was used, then it has shape `(nsources, nr, nphi, 3, nomegas)`, where:
 
 - `nsources` represents the number of moment tensors/force vectors specified in the `source` object;
 - `nr, nphi` represent the number of radii and azimuths specified in the `stations` object;
