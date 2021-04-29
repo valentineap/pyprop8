@@ -322,6 +322,10 @@ class RegularlyDistributedReceivers(ReceiverSet):
     @property
     def nstations(self):
         return self.nr*self.nphi
+    def asListOfReceivers(self):
+        '''Convert to ListOfReceivers object'''
+        xx,yy = self.as_xy()
+        return ListOfReceivers(xx.flatten(),yy.flatten(),self.depth)
 
 
 class ListOfReceivers(ReceiverSet):
@@ -961,14 +965,16 @@ def compute_seismograms(structure, source, stations, nt,dt,alpha=None,
                     deriv[:,:,derivatives.i_x,0,:] += np.einsum('srt,r->srt',seis[:,:,0,:],-dpdx*np.sin(stations.pp))+ np.einsum('srt,r->srt',seis[:,:,1,:],-dpdx*np.cos(stations.pp))
                     deriv[:,:,derivatives.i_x,1,:] += np.einsum('srt,r->srt',seis[:,:,0,:], dpdx*np.cos(stations.pp))+ np.einsum('srt,r->srt',seis[:,:,1,:],-dpdx*np.sin(stations.pp))
                 else:
-                    raise NotImplementedError
+                    raise NotImplementedError("Lateral derivatives not available with RegularlyDistributedReceivers, as\n"
+                                                "source is required to lie on central axis. Consider using ListOfReceivers.")
             if derivatives.y:
                 if type(stations) is ListOfReceivers:
                     dpdy = -np.cos(stations.pp)/stations.rr
                     deriv[:,:,derivatives.i_y,0,:] += np.einsum('srt,r->srt',seis[:,:,0,:],-dpdy*np.sin(stations.pp))+ np.einsum('srt,r->srt',seis[:,:,1,:],-dpdy*np.cos(stations.pp))
                     deriv[:,:,derivatives.i_y,1,:] += np.einsum('srt,r->srt',seis[:,:,0,:], dpdy*np.cos(stations.pp))+ np.einsum('srt,r->srt',seis[:,:,1,:],-dpdy*np.sin(stations.pp))
                 else:
-                    raise NotImplementedError
+                    raise NotImplementedError("Lateral derivatives not available with RegularlyDistributedReceivers, as\n"
+                                                "source is required to lie on central axis. Consider using ListOfReceivers.")
         # Do this rotation *after* derivatives as we need the unrotated seismograms for x/y deriv
         seis = np.einsum(esr,rotator,seis)
     if squeeze_outputs:

@@ -15,7 +15,7 @@ model = pp.LayeredStructureModel(np.array([[ 0.10, 3.20, 2.00, 2.10],
                                            [np.inf,7.70, 4.30, 3.30]]))
 print(model)
 
-stations = pp.RegularlyDistributedReceivers(39.6,39.6,1,90-118.2,90-118.2,1,degrees=True)
+stations = pp.RegularlyDistributedReceivers(39.6,39.6,1,90-118.2,90-118.2,1,degrees=True).asListOfReceivers()
 
 # Table 2, 'Iteration 0' column
 event = pp.PointSource(0,0,35,rtf2xyz(np.array([[ 0.3406, 0.0005, 0.1610],
