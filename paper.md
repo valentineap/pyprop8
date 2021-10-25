@@ -28,7 +28,20 @@ Many different tools and packages exist which may be used to simulate seismic wa
 To address this, `pyprop8` is written entirely in Python, and the core seismogram-calculation routines do not have any dependencies except the mainstream libraries `numpy` and `scipy`. We envisage that this package will serve a diverse range of users. For those studying or teaching seismology, `pyprop8` provides a simulation tool with a reasonable level of physical realism and flexibility, which can underpin a wide range of demonstrations and practical exercises. Similarly, for those studying or teaching inverse theory, `pyprop8` may be used as an exemplar forward problem with realistic features and scalable complexity. In this context, the ability to compute partial derivatives with respect to source parameters is valuable. The package may also prove beneficial to the research community, particularly as a source of test problems for use in the development of inversion algorithms.
 
 # Implementation details
-The theoretical basis for `pyprop8` is described in detail in [@OToole2011], with the calculation of derivatives set out in an appendix to [@OToole2012]. The algorithm is based on a Thompson-Haskell propagator matrix method, using a minor-vector formalism to ensure numerical stability. A novel feature of this approach is that it is designed to remain stable at zero frequency, allowing the static offset (i.e., permanent seismic deformation) to be captured within simulations. As a result, a wide range of seismic observables can be simulated within a common framework, including conventional seismograms, GPS records, InSAR images and direct field observations of slip. The algorithm is framed in a Cartesian geometry, i.e. it assumes a flat Earth. As a result, its ability to reproduce real-world seismograms degrades beyond modest distances (~100km).
+The theoretical basis for `pyprop8` is described in detail in [@OToole2011], with the calculation of derivatives set out in an appendix to [@OToole2012]; `pyprop8` provides a full implementation of this published theory. The algorithm is based on a Thompson-Haskell propagator matrix method, using a minor-vector formalism to ensure numerical stability. A novel feature of the approach is that it is designed to remain stable at zero frequency, allowing the static offset (i.e., permanent seismic deformation) to be captured within simulations. As a result, a wide range of seismic observables can be simulated within a common framework, including conventional seismograms, GPS records, InSAR images and direct field observations of slip.
+
+## Limitations
+A number of approximations are inherent to the formulation of `pyprop8`, and we summarise the main ones here:
+
+- The algorithm is framed in a Cartesian geometry, i.e. it assumes a flat Earth. This is a reasonable approximation close to the seismic source, but degrades beyond modest distances (~100km).
+- The earth structure is assumed to be a stack of homogeneous, isotropic layers. Real-world features such as lateral heterogeneity, isotropy and topography are not accounted for.
+- The seismic source is assumed to act at a single point in space: any finite spatial extent of real-world sources is neglected. This approximation degrades close to the source location and as the seismic magnitude increases.
+
+These factors should be borne in mind in any case where outputs from `pyprop8` are to be compared to observational data. 
+
+
 
 # Acknowledgements
 This work has benefited from financial support from the Australian Research Council under grants DE180100040 and DP200100053, and from the CSIRO Future Science Platform in Deep Earth Imaging.
+
+# References
