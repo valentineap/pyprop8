@@ -3,12 +3,37 @@ import numpy as np
 from pyprop8 import _scaledmatrix as scm
 import scipy.special as spec
 #from tqdm.autonotebook import tqdm edited by MS 2/3/21 due to warning in Anaconda JupyterLab
-from tqdm import tqdm
 import warnings
+try:
+    from tqdm import tqdm
+except ImportError:
+    print("Unable to import 'tqdm'; progress bars will not be shown.")
+    # Create a do-nothing implementation
+    class tqdm:
+        def __init__(self,*args,**kwargs):
+            pass
+        def update(self,i):
+            pass
+        def close(self):
+            pass
+
 
 PLANETARY_RADIUS=6371.
 
 def gc_dist(lat1,lon1,lat2,lon2,radius=PLANETARY_RADIUS):
+    '''
+    Calculate the great-circle distance between two points on the surface of a
+    sphere.
+
+    :param float lat1: Latitude of point 1
+    :param float lon1: Longitude of point 1
+    :param float lat2: Latitude of point 2
+    :param float lon2: Longitude of point 2 (all in radians)
+    :param float radius: The radius of the sphere (km).
+
+    :return: The great-circle distance (km).
+    :rtype: float
+    '''
     dlat = lat2-lat1
     dlon = lon2-lon1
 
@@ -16,40 +41,42 @@ def gc_dist(lat1,lon1,lat2,lon2,radius=PLANETARY_RADIUS):
     dist = 2*radius*np.arcsin(np.sqrt(u))
     return dist
 def gc_azimuth(lat1,lon1,lat2,lon2):
-    '''Azimuth cw from North to go *to* (lat2,lon2) from (lat1,lon1)'''
+    '''
+    Azimuth cw from North to go *to* (lat2,lon2) from (lat1,lon1)
+
+    :param float lat1: Latitude of point 1
+    :param float lon1: Longitude of point 1
+    :param float lat2: Latitude of point 2
+    :param float lon2: Longitude of point 2 (all in radians)
+
+    :return: The azimuth (radians).
+    :rtype: float
+
+    '''
     dlon = lon2-lon1
     return np.arctan2(np.cos(lat2)*np.sin(dlon),np.cos(lat1)*np.sin(lat2)-np.sin(lat1)*np.cos(lat2)*np.cos(dlon))
 
 
 class PointSource:
-    '''
-    Object to encapsulate a point source. Source representation
-    is a moment tensor and/or a 3-component force vector acting
-    at a single point in space and time. Multiple moment tensors
-    and force vectors may be specified, in which case calculations
-    will be performed for each separately.
-    '''
     def __init__(self,x,y,dep,Mxyz,F,time):
         '''
-        Create a point source object.
-        Inputs:
-        x,y - float: spatial location of point source. May be interpreted
-            as Cartesian x/y or as spherical lon/lat, depending on ReceiverSet
-            object and its `geometry` parameter.
-        dep - float: depth of point source, km.
-        Mxyz - ndarray, shape (3x3) or shape (nsources x 3x3): moment tensor(s)
-            expressed in a Cartesian (z-up) system. See `utils.rtf2xyz()` for a
-            routine to convert moment tensors expressed relative to a spherical
-            coordinate system. If multiple moment tensors are provided (i.e. if
-            nsources>1), each will be processed separately.
-        F - ndarray, shape (3x1) or shape (nsources x 3x1): force vector(s)
-            expressed in a Cartesian (z-up) system. Note that nsources for F
-            must match that for Mxyz. If multiple forces are provided each will
-            be processed separately. However, M[i,:,:] and F[i,:,:] are assumed
-            to act simultaneously, i.e. for a 'pure' moment tensor source the
-            corresponding components of F should be set to zero, and vice versa.
-        time - datetime.datetime: the instant of rupture.
+        Create an object representing a seismic source. Source mechanism
+        represented as the sum of a moment tensor and a force, acting at a
+        single point in space. Alternatively N distinct moment tensor/force
+        pairs may be specified; in this case, N distinct simulations are to be
+        performed.
 
+        :param float x: The x-location of the source.
+        :param float y: The y-location of the source. Coordinate system must
+            match that used for specifying receivers.
+        :param float dep: The depth of the source, km. Must be positive (or
+            zero).
+        :param numpy.ndarray Mxyz: The moment tensor, expressed relative to a
+            Cartesian system. Shape 3x3 or Nx3x3.
+        :param numpy.ndarray F: The force vector, expressed relative to a
+            Cartesian system. Shape 1x3 or Nx1x3.
+        :param datetime.datetime time: The event time, as an instance of
+            :py:class:`datetime.datetime`.
         '''
         self.x = x
         self.y = y
@@ -70,18 +97,40 @@ class PointSource:
         else:
             raise ValueError("Moment tensor should be (Nx)3x3")
     def copy(self):
-        '''Return a duplicate of this PointSource object'''
+        '''
+        Make a copy of the current source.
+        '''
         return PointSource(self.x,self.y,self.dep,self.Mxyz,self.F,self.time)
 class LayeredStructureModel:
-    '''Class to represent a layered earth model.'''
     def __init__(self,layers=None,interface_depth_form=False):
         '''
-        Construct a model. If `interface_depth_form=True`, `layers` is
-        expected to contain information about interface depths and the properties
-        immediately below that depth (see `LayeredStructureModel.from_interface_list()`
-        for more details). Otherwise, it is expected to contain an ordered sequence of
-        layers specified by their thickness and material properties (see
-        `LayeredStructureModel.from_layer_list()`).
+        Construct an object to represent an earth model.
+
+        :param list or None layers: Description of the layers that comprise the
+            model. If ``interface_depth_form=False`` (default), list of tuples
+            ``(thickness, vp, vs, rho)`` defining properties of each layer in
+            turn, starting from the top; final entry must have thickness
+            ``np.inf``. Alternatively if ``interface_depth_form=True``, list of
+            tuples ``(ztop, vp, vs, rho)`` defining locations of interfaces
+            within the model and the properties immediately *below* that
+            interface; in this case one entry must have ``ztop=0``. If ``None``,
+            'empty' model is returned.
+        :param bool interface_depth_form: Select manner in which ``layers`` is
+            specified; see above.
+
+        Each instance provides the following variables, which should be treated
+        as read-only:
+
+        :ivar int or None nlayers: The number of layers in the model (including
+            the infinite halfspace).
+        :ivar numpy.ndarray or None dz: Array of layer thicknesses, from top to
+            bottom.
+        :ivar numpy.ndarray or None sigma: Array of S-wave moduli in each layer,
+            from top to bottom.
+        :ivar numpy.ndarray or None mu: Array of P-wave moduli in each layer,
+            from top to bottom.
+        :ivar numpy.ndarray or None rho: Array of densities in each layer, from
+            top to bottom.
         '''
         if layers is None:
             self.nlayers=None
@@ -96,11 +145,15 @@ class LayeredStructureModel:
                 self.from_layer_list(layers)
     def from_layer_list(self,layers):
         '''
-        Construct model from list-like structure where:
-        i.   Layers are given in order from surface to base;
-        ii.  Each layer is specified by four parameters: (thickness, Vp, Vs, density)
-        iii. The final entry in the list has thickness 'np.inf' and represents
-             the underlying infinite halfspace
+        Parser used to initialise earth model from list of layer properties.
+        Called when class is instantiated with ``interface_depth_form=False``;
+        may be called separately to reset all model properties.
+
+        :param list layers: Description of the layers that comprise the model.
+            List of tuples ``(thickness, vp, vs, rho)`` defining properties of
+            each layer in turn, starting from the top; final entry must have
+            thickness ``np.inf`` and represents the underlying infinite
+            halfspace.
         '''
         self.nlayers = len(layers)
         self.dz = np.zeros(self.nlayers)
@@ -119,14 +172,18 @@ class LayeredStructureModel:
         if not np.isinf(self.dz[-1]): raise ValueError("Model should be terminated by 'infinite-thickness' layer representing underlying halfspace")
     def from_interface_list(self,layers):
         '''
-        Construct model from list-like structure where:
-        i.   Each entry in the list is specified by four parameters, (z, Vp, Vs, rho),
-             where z is an interface depth and (Vp, Vs, rho) represent the properties
-             immediately *below* that interface.
-        ii.  The list need not be ordered. If there are duplicates in the set of interface depths, the
-             first entry in the list will be used; others will be silently discarded.
-        iii. There must be one entry with an interface depth of z=0, representing the free surface.
-        iv.  The deepest interface is taken as specifying the properties of the underlying infinite half-space.
+        Parser used to initialise earth model from list of interface properties.
+        Called when class is instantiated with ``interface_depth_from=True``;
+        may be called separately to reset all model properties.
+
+        :param list layers: Description of the layers that comprise the model.
+            List of tuples ``(ztop, vp, vs, rho)`` defining locations of
+            interfaces within the model and the properties immediately *below*
+            that interface; in this case one entry must have ``ztop=0``. The
+            list need not be ordered; if any entries exist with duplicate depths
+            exist, the first will be used and others silently discarded. The
+            deepest interface is taken to specify the properties of the
+            underlying infinite halfspace.
         '''
         nlayers = len(layers)
         zz = np.zeros(nlayers)
@@ -162,12 +219,16 @@ class LayeredStructureModel:
             self.rho[i] = rho[sort_order[i]]
     def with_interfaces(self,*interfaces):
         '''
-        Return arrays representing the layered model, with additional interfaces
-        inserted at the depths specified in ``*interfaces` (unless there is already
-        an interface at that depth). These additional interfaces do not alter the
-        material properties of the model (i.e. we end up with layers with duplicate
-        properties) and used to ensure that the source and receiver depths coincide
-        with an 'interface' as required by the theory.
+        Return arrays describing the model, with additional (pseudo-)interfaces inserted at any depths passed as ``*args`` (unless there is already an interface at this depth). These additional interfaces do not alter the material properties (i.e. properties are identical above and below the interface), but are used internally to ensure that there is an interface at the source depth, as required for the calculation algorithm.
+
+        :return: tuple ``(dz,sigma,mu,rho,indices,added)`` where:
+            - ``dz`` - :py:class:`numpy.ndarray` containing thicknesses of each layer;
+            - ``sigma`` - :py:class:`numpy.ndarray` containing P-wave modulus of each layer;
+            - ``mu`` - :py:class:`numpy.ndarray` containing S-wave modulus of each layer;
+            - ``rho`` - :py:class:`numpy.ndarray` containing density of each layer;
+            - ``indices`` - list, possibly empty, containing index of each layer corresponding to an entry in ``*args``.
+            - ``added`` - list, possibly empty, indicating whether an entry in ``*args`` required creation of an additional layer (``True``) or if an interface already existed at that depth (``False``).
+
         '''
         dz = self.dz.copy()
         sigma = self.sigma.copy()
@@ -211,14 +272,26 @@ class LayeredStructureModel:
         return tuple([dz,sigma,mu,rho]+indices+pseudo)
     @property
     def vp(self):
-        '''P-wave velocity'''
+        '''
+        P-wave velocity in each layer (read-only).
+
+        :type: :py:class:`numpy.ndarray`
+        '''
         return np.sqrt(self.sigma/self.rho)
     @property
     def vs(self):
-        '''S-wave velocity'''
+        '''
+        S-wave velocity in each layer (read-only).
+
+        :type: :py:class:`numpy.ndarray`
+        '''
         return np.sqrt(self.mu/self.rho)
     def __repr__(self):
-        '''Pretty-print model'''
+        '''
+        Pretty-print model
+        :return: An ascii-art rendition of the model
+        :rtype: str
+        '''
         z = 0
         out = []
         for i in range(self.nlayers):
@@ -230,7 +303,11 @@ class LayeredStructureModel:
             z+=self.dz[i]
         return ''.join(out)
     def copy(self):
-        '''Return a copy of the current model'''
+        '''
+        Make a copy of the current model.
+
+        :rtype: :py:class:`LayeredStructureModel`
+        '''
         m = LayeredStructureModel()
         m.nlayers = self.nlayers
         m.dz = self.dz.copy()
@@ -243,10 +320,15 @@ class LayeredStructureModel:
 
 
 class ReceiverSet:
-    '''Base class for representing receiver locations'''
+    '''
+    Base class for representing receiver locations.
+    '''
     def __init__(self):
         pass
     def validate(self):
+        '''
+        Performs sanity checks on receivers
+        '''
         if np.any(self.rr<0): raise ValueError("Some receivers appear to be at negative radii")
         if np.any(self.rr>200): warnings.warn("Source-receiver distances exceed 200 km. Flat-earth approximation may not be appropriate. ",RuntimeWarning)
     def copy(self):
@@ -257,32 +339,31 @@ class ReceiverSet:
 
 
 class RegularlyDistributedReceivers(ReceiverSet):
-    '''
-    A set of receivers distributed regularly in (cylindrical) polar coordinates:
-    receivers lie on a set of equi-distant concentric circles centred on the
-    origin, and at equally-distributed azimuths. With `nr` radii and `nphi`
-    azimuths, there are a total of (nr x nphi) receivers. This regularity
-    enables faster computation and is useful if general characterisation of the
-    wavefield is required.
-    '''
     def __init__(self,rmin=30,rmax=200,nr=18,phimin=0,phimax=360,nphi=36,depth=0,x0=0,y0=0,degrees=True):
-        '''Create a set of receivers distributed regularly in cylindrical polar
-        coordinates.
-        Inputs:
-        rmin,rmax - Minimum and maximum radii to consider (inclusive; km)
-        nr - number of radii to consider
-        phimin,phimax - Minimum and maximum angles to consider. Measured
+        '''
+        Create a set of receivers distributed regularly in cylindrical polar
+        coordinates. Receivers lie on a set of equi-distant concentric circles
+        centred on the origin, and at equally-distributed azimuths. This
+        regularity enables faster computation and is useful if general
+        characterisation of the wavefield is required.
+
+        :param float rmin: Minimum radius to generate (inclusive; km)
+        :param float rmax: Maximum radius to generate (inclusive; km)
+        :param int nr: Number of radii to generate
+        :param float phimin: Minimum angle to generate.
+        :param float phimax: Maximum angles to generate. Angles are measured
             counter-clockwise from the x (East) axis, when viewed from above.
-            May be specified in degrees or radians (see `degrees` argument)
-        nphi - Number of angles to consider
-        depth - Depth of burial of receivers (km)
-        x0,y0 - Coordinates of the origin point about which the receivers are
-            to be distributed. These are used for (only) two purposes:
-            (i)  To verify the requirement that the source location coincide
-                 with the symmetry axis; and
-            (ii) To generate appropriate Cartesian coordinates when .to_xy() is
-                 called.
-        degrees - True if angles are specified in degrees; False if in radians.
+            They may be specified in degrees or radians (see `degrees` option).
+        :param int nphi: Number of angles to consider
+        :param float depth: Depth of burial of receivers (km)
+        :param float x0:
+        :param float y0: Coordinates of the origin point about which the
+            receivers are to be distributed. These are used to verify the
+            requirement that the source location coincide with the symmetry
+            axis, and to generate appropriate Cartesian coordinates when
+            .to_xy() is called.
+        :param bool degrees: True if angles are specified in degrees; False if
+            in radians.
         '''
         super().__init__()
         self.rmin = rmin
@@ -298,9 +379,21 @@ class RegularlyDistributedReceivers(ReceiverSet):
         self.rr = None
         self.pp = None
     def copy(self):
+        '''
+        Make a copy of the the current receivers.
+
+        :rtype: RegularlyDistributedReceivers
+        '''
         r = RegularlyDistributedReceivers(self.rmin,self.rmax,self.nr,self.phimin,self.phimax,self.nphi,self.depth,self.x0,self.y0,self.degrees)
         return r
     def generate_rphi(self,event_x,event_y):
+        '''
+        Construct radial and azimuthal grids.
+
+        :param float event_x:
+        :param float event_y: Coordinates of the seismic source in global
+            Cartesian grid
+        '''
         if event_x != self.x0 or event_y != self.y0:
             raise ValueError("RegularlyDistributedReceivers may only be used for events located on the central axis."
                              "Either (i) Check that x0/y0 parameters of RegularlyDistributedReceivers are set appropriately, or"
@@ -321,21 +414,41 @@ class RegularlyDistributedReceivers(ReceiverSet):
         return n
     @property
     def nstations(self):
+        '''
+        The total number of receivers present.
+
+        :type: int
+        '''
         return self.nr*self.nphi
     def asListOfReceivers(self):
-        '''Convert to ListOfReceivers object'''
+        '''
+        Convert to ListOfReceivers object.
+
+        :rtype: ListOfReceivers
+        '''
         xx,yy = self.as_xy()
         return ListOfReceivers(xx.flatten(),yy.flatten(),self.depth)
 
 
 class ListOfReceivers(ReceiverSet):
     def __init__(self,xx,yy,depth=0,geometry='cartesian'):
-        '''Create receivers at known locations. If `geometry='cartesian'`,
-        provide arrays of x and y values. If `geometry='spherical'` provide
-        array of longitude as xx and latitude as yy. The `geometry` parameter
-        also governs the interpretation of the location coordinates within the
-        event object: if `geometry='spherical'` these are also assumed to be
-        longitude/latitude.
+        '''
+        Create a set pf receivers at known locations.
+
+        :param np.ndarray xx:
+        :param np.ndarray yy: Arrays containing the x and y coordinates of each
+            receiver. See `geometry` parameter for details on interpretation.
+        :param float depth: The depth of burial of receivers; zero for surface
+            records. Note that all receivers must be at the same depth: if
+            multiple depths are required, it will be necessary to split the
+            receivers into groups and perform separate simulations for each.
+        :param str geometry: If `geometry='cartesian'`, x and y coordinates are
+            assumed to be given relative to a Cartesian grid with origin at
+            some arbitrary point determined by the user. Alternatively, if
+            `geometry='spherical'`, the x and y coordinates are assumed to be
+            given in degrees longitude/latitude. Note that the actual
+            simulation remains in a Cartesian geometry with a flat-Earth
+            approximation.
         '''
         assert xx.shape[0] == yy.shape[0]
         self.xx = xx
@@ -362,8 +475,21 @@ class ListOfReceivers(ReceiverSet):
         n = 0
         if self.nr>1: n+=1
         return n
+    def copy(self):
+        '''
+        Make a copy of the current receivers.
+
+        :rtype: ListOfReceivers
+        '''
+        r = ListOfReceivers(self.xx,self.yy,self.depth,self.geometry)
+        return r
     @property
     def nstations(self):
+        '''
+        The total number of receivers present.
+
+        :type: int
+        '''
         return self.nr
 
 
@@ -391,48 +517,62 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
     Calculate and return velocity spectra for a given source and earth model at
     specified locations.
 
-    Inputs:
-    structure - type(LayeredStructureModel): object defining the earth model in
-        which calculation should be performed
-    source - type(PointSource): object defining the source(s) for which
-        calculation should be performed
-    stations - type(ListOfReceivers) or type(RegularlyDistributedReceivers):
-        object defining locations at which spectra should be generated.
-    omegas - ndarray, dtype(complex), shape(N,): set of freqencies at which
-        spectrum is required
-    derivatives - optional, type(DerivativeSwitches) or None: Object specifying
-        which derivatives (if any) are to be computed. If None, no derivatives
-        are returned.
-    show_progress - optional, boolean: Switch for progress bars. Default: True
-    stencil - optional, callable, stencil(**kwargs): function returning array of
-        points and array of associated weights defining a quadrature scheme for
-        the integral over wavenumber, k. Default is to employ a trapezium-rule
-        integration scheme.
-    stencil_kwargs - optional, dictionary: arguments that will be passed to
-        stencil()
-    squeeze_outputs - optional, boolean: Call np.squeeze() on output arrays?
-         Default: True.
+    :param LayeredStructureModel structure: The earth model within which
+        calculations should be performed.
+    :param PointSource source: The source(s) for which calculations should be
+        performed
+    :param ListOfReceivers or RegularlyDistributedReceivers stations: The
+        locations for which spectra should be generated.
+    :param numpy.ndarray omegas: Freqencies at which spectrum is to be
+        computed. Array may be complex and should have shape (n, ).
+    :param DerivativeSwitches or None derivatives: Determines which derivatives
+        are computed and returned. See also discussion of return value, below.
+    :param bool show_progress: Display progress bars if available.
+    :param callable stencil: Function to generate quadrature points/weights for
+        performing integral over wavenumber, k. Pass a callable satisfying::
 
-    If no derivatives are requested, returns:
-    ndarray - the requested spectra. Array shape depends on arguments.
-         If `stations` is of type `RegularlyDistributedReceivers`, i.e.
-         receivers lie on an (r, phi) grid, then spectra have shape
-         (sources.nsources, stations.nr, stations.nphi, 3, len(omegas) )
-         with the penultimate dimension representing three channels:
-         (radial, transverse, vertical).
+            kk, wts = stencil(**stencil_kwargs)
 
-         If `stations` is of type `ListOfReceivers`, then spectra have shape
-         (sources.nsources, stations.nstations, 3, len(omegas) ).
+        where kk represents sampling points and wts the associated quadrature
+        weights.
+    :param dict stencil_kwargs: Arguments that will be passed to stencil()
+    :param bool squeeze_outputs: If true, apply :py:func:`numpy.squeeze` to all
+        output arrays to eliminate dimensions of size '1'.
 
-    If derivatives are requested, returns:
-    ndarray, ndarray - the requested spectra (as above), and the corresponding
-         derivatives in an array dimensioned
-         ( ..., DerivativeSwitches.nderivs, 3, len(omegas))
-         where the leading dimensions are as for the spectra themselves.
+    The output of ``compute_spectra`` depends on the value of the ``derivatives``
+    parameter.
 
+    :returns: If ``derivatives = None`` then ``compute_spectra`` returns a single
+        array, ``spectra``.Otherwise it returns a tuple of two arrays,
+        ``(spectra, deriv)``.
 
-    In all cases, if `squeeze_outputs=True` (default), then `np.squeeze()`
-    will be called, discarding dimensions with only one entry.
+        The shapes of ``spectra`` and ``deriv`` depend on the nature of
+        the object passed to ``stations``.
+
+        - If ``stations`` is an instance of :py:class:`~pyprop8.ListOfReceivers`,
+          ``spectra`` will have shape
+          ``(source.nsources, receivers.nstations, 3, nfreq)``, where
+          ``source.nsources`` is the number of moment tensor/source vector pairs
+          specified within the ``source`` object, ``receivers.nstations`` is the
+          total number of receivers, and ``nfreq`` is the number of frequency
+          points at which evaluation was requested (i.e., ``size(omegas)``). The
+          third dimension indexes the three components of motion: radial,
+          transverse, and vertical. ``deriv`` will have shape
+          ``(source.nsources, receivers.nstations,derivatives.nderivs,3,nfreq)``
+          where ``derivatives.nderivs`` is the total number of derivative
+          components requested within the :py:class:`~pyprop8.DerivativeSwitches`
+          object.
+        - If ``stations`` is an instance of
+          :py:class:`~pyprop8.RegularlyDistributedReceivers`, ``spectra`` will
+          have shape ``(source.nsources, receivers.nr, receivers.nphi, 3, nfreq)``,
+          where ``receivers.nr`` and ``receivers.nphi`` are the number of grid
+          points in the radial and azimuthal directions, respectively.
+          ``deriv`` will have shape
+          ``(source.nsources, receivers.nr, receivers.nphi, derivatives.nderiv, 3, nfreq)``.
+
+        In all cases, if `squeeze_outputs=True` (default), then
+        :py:func:`numpy.squeeze` will be called, discarding dimensions with only
+        one entry.
 
 
     """
@@ -727,6 +867,9 @@ def compute_spectra(structure, source, stations, omegas, derivatives = None, sho
 
 
 def compute_H_matrices(k,omega,dz,sigma,mu,rho,isrc,irec,do_derivatives=False):
+    '''
+    Compute the "H" matrices, as defined in O'Toole & Woodhouse 2011.
+    '''
     # Note on derivatives: the P-SV calculations are done with everything
     # propagated to the receiver depth, whereas SH calculations mix source
     # and receiver quantities. Thus the algorithmic structure of the derivative
@@ -858,8 +1001,85 @@ def compute_H_matrices(k,omega,dz,sigma,mu,rho,isrc,irec,do_derivatives=False):
 
 
 def compute_seismograms(structure, source, stations, nt,dt,alpha=None,
-                        source_time_function=None,pad_frac=0.5,kind ='displacement',xyz=True,
+                        source_time_function=None,pad_frac=0.5,xyz=True,
                         derivatives=None,show_progress = True,squeeze_outputs=True,**kwargs):
+    """
+    Calculate and return displacement seismograms for a given source and earth
+    model at specified locations.
+
+    :param LayeredStructureModel structure: The earth model within which
+        calculations should be performed.
+    :param PointSource source: The source(s) for which calculations should be
+        performed
+    :param ListOfReceivers or RegularlyDistributedReceivers stations: The
+        locations for which seismograms should be generated.
+    :param int nt: Number of time-series points to be returned.
+    :param float dt: Desired interval (seconds) between successive time series
+        points (i.e. the inverse of sampling frequency). Total time series
+        length is thus ``(nt-1)*dt`` seconds.
+    :param float or None alpha: Shift applied to integration contour to avoid
+        singularities on real axis. If ``None``, this is determined according
+        to the rule-of-thumb given in O'Toole & Woodhouse (2011).
+    :param callable or None source_time_function: Function representing the
+        spectrum of a source time-function to be applied to the seismograms.
+        Function should take a single argument, representing angular frequency,
+        and return a single complex number representing the amplitude of the
+        spectrum at that point. If ``None``, no source time-function is applied.
+    :param float pad_frac: Simulations are performed for a longer time series,
+        which is then truncated to the desired length. This helps improve
+        accuracy and stability. ``pad_frac`` determines the additional padding
+        used, specified as a proportion of the desired time series length.
+    :param bool xyz: If ``True``, the three components of each seismogram will
+        correspond to motion relative to Cartesian x/y/z axes. If ``Fales``,
+        the three components will be expressed in  polar coordinates:
+        radial/transverse/vertical.
+    :param DerivativeSwitches or None derivatives: Determines which derivatives
+        are computed and returned. See also discussion of return value, below.
+    :param bool show_progress: Display progress bars if available.
+    :param bool squeeze_outputs: If true, apply :py:func:`numpy.squeeze` to all
+        output arrays to eliminate dimensions of size '1'.
+    :param bool \**kwargs: Any additional keyword options will be passed to
+        :py:func:`~pyprop8.compute_spectra`.
+
+    The output of ``compute_seismograms`` depends on value of the ``derivatives``
+    parameter.
+
+    :returns: If ``derivatives = None`` then ``compute_spectra`` returns a tuple,
+        ``(tt, seis)``. Otherwise ``compute_spectra`` returns a tuple,
+        ``(tt, seis, deriv)``.
+
+        Here, ``tt`` is a :py:class:`numpy.ndarray` containing the sequence of time
+        points for which the seismograms have been evaluated. It will have shape
+        ``(nt,)``.
+
+        The shapes of ``seis`` and ``deriv`` depend on the nature of the object
+        passed to ``stations``:
+
+        - If ``stations`` is an instance of :py:class:`~pyprop8.ListOfReceivers`,
+          ``seis`` will have shape
+          ``(source.nsources, receivers.nstations, 3, nt)``, where
+          ``source.nsources`` is the number of moment tensor/source vector pairs
+          specified within the ``source`` object, ``receivers.nstations`` is the
+          total number of receivers, and ``nt`` is the number of time points at
+          which evaluation was requested. The third dimension indexes the three
+          components of motion, governed by the ``xyz`` option. ``deriv`` will
+          have shape
+          ``(source.nsources, receivers.nstations,derivatives.nderivs,3,nt)``
+          where ``derivatives.nderivs`` is the total number of derivative
+          components requested within the :py:class:`~pyprop8.DerivativeSwitches`
+          object.
+        - If ``stations`` is an instance of
+          :py:class:`~pyprop8.RegularlyDistributedReceivers`, ``seis`` will
+          have shape ``(source.nsources, receivers.nr, receivers.nphi, 3, nt)``,
+          where ``receivers.nr`` and ``receivers.nphi`` are the number of grid
+          points in the radial and azimuthal directions, respectively.
+          ``deriv`` will have shape
+          ``(source.nsources, receivers.nr, receivers.nphi, derivatives.nderiv, 3, nt)``.
+
+        In all cases, if ``squeeze_outputs=True`` (default), then
+        :py:func:`numpy.squeeze` will be called, discarding dimensions with only
+        one entry.
+    """
     npad = int(pad_frac*nt)
     tt = np.arange(nt+npad)*dt
     if alpha is None:
@@ -901,17 +1121,17 @@ def compute_seismograms(structure, source, stations, nt,dt,alpha=None,
             stf[i] = source_time_function(w)
         spectra = np.einsum(ess,spectra,stf)
         if do_derivatives: d_spectra = np.einsum(essd,d_spectra,stf)
-    if kind == 'displacement':
+    #if kind == 'displacement':
         # Fourier integration -- transform without 1/(i w) and then integrate
-        stencil = np.tril(np.full([nt,nt+npad],dt,dtype='float64'))
-        stencil[np.arange(nt),np.arange(nt)] *= 0.5
-        stencil[:,0] *= 0.5
-        stencil[0,0] = 0
-        seis = (nt+npad)*delta_omega*np.fft.irfft(spectra,nt+npad)/(2*np.pi)
-        seis = np.einsum(est,stencil,seis,np.exp(alpha*tt))
-        if do_derivatives:
-            deriv = (nt+npad)*delta_omega*np.fft.irfft(d_spectra,nt+npad)/(2*np.pi)
-            deriv = np.einsum(estd,stencil,deriv,np.exp(alpha*tt))
+    stencil = np.tril(np.full([nt,nt+npad],dt,dtype='float64'))
+    stencil[np.arange(nt),np.arange(nt)] *= 0.5
+    stencil[:,0] *= 0.5
+    stencil[0,0] = 0
+    seis = (nt+npad)*delta_omega*np.fft.irfft(spectra,nt+npad)/(2*np.pi)
+    seis = np.einsum(est,stencil,seis,np.exp(alpha*tt))
+    if do_derivatives:
+        deriv = (nt+npad)*delta_omega*np.fft.irfft(d_spectra,nt+npad)/(2*np.pi)
+        deriv = np.einsum(estd,stencil,deriv,np.exp(alpha*tt))
     # This doesn't seem to be very stable. I wonder if the better way to get
     # velocity is to force the user to do it themselves -- get a time series and then
     # differentiate as required.
@@ -925,8 +1145,8 @@ def compute_seismograms(structure, source, stations, nt,dt,alpha=None,
     #         deriv = np.einsum('ut,srpdct,t->srpdcu',stencil,deriv,np.exp(alpha*tt))
     # elif kind == 'acceleration':
     #       this would be as velocity but scaled by another factor of (i w)
-    else:
-        raise NotImplementedError(kind)
+    # else:
+    #     raise NotImplementedError(kind)
     if xyz:
         # Rotate from (radial/transverse/z to xyz (enz))
         if type(stations) is RegularlyDistributedReceivers:
@@ -986,6 +1206,61 @@ def compute_seismograms(structure, source, stations, nt,dt,alpha=None,
         return tt[:nt],seis,deriv
 
 def compute_static(structure,source,stations,los_vector=np.eye(3),derivatives=None,squeeze_outputs=True,**kwargs):
+    """
+    Calculate and return static offset measurements for a given source and earth
+    model at specified locations.
+
+    :param LayeredStructureModel structure: The earth model within which
+        calculations should be performed.
+    :param PointSource source: The source(s) for which calculations should be
+        performed
+    :param ListOfReceivers or RegularlyDistributedReceivers stations: The
+        locations for which seismograms should be generated.
+    :param numpy.ndarray los_vector: Vector(s) defining 'line(s) of sight'
+        along which static displacement should be measured. Should be expressed
+        relative to a Cartesian basis and have shape (3) or (3, nlos). Default
+        will return displacements relative to Cartesian basis.
+    :param DerivativeSwitches or None derivatives: Determines which derivatives
+        are computed and returned. See also discussion of return value, below.
+    :param bool show_progress: Display progress bars if available.
+    :param bool squeeze_outputs: If true, apply :py:func:`numpy.squeeze` to all
+        output arrays to eliminate dimensions of size '1'.
+    :param bool \**kwargs: Any additional keyword options will be passed to
+        :py:func:`~pyprop8.compute_spectra`.
+
+    The output of ``compute_static`` depends on value of the ``derivatives``
+    parameter.
+
+    :returns: If ``derivatives = None`` then ``compute_spectra`` returns a
+        single array, ``static``. Otherwise ``compute_spectra`` returns a tuple,
+        ``(static, deriv)``.
+
+        The shapes of ``static`` and ``deriv`` depend on the nature of the object
+        passed to ``stations``:
+
+        - If ``stations`` is an instance of :py:class:`~pyprop8.ListOfReceivers`,
+          ``static`` will have shape
+          ``(source.nsources, receivers.nstations, nlos)``, where
+          ``source.nsources`` is the number of moment tensor/source vector pairs
+          specified within the ``source`` object, ``receivers.nstations`` is the
+          total number of receivers, and ``nlos`` is the number of lines-of-sight
+          for which evaluation was requested. ``deriv`` will have shape
+          ``(source.nsources, receivers.nstations,derivatives.nderivs,nlos)``
+          where ``derivatives.nderivs`` is the total number of derivative
+          components requested within the :py:class:`~pyprop8.DerivativeSwitches`
+          object.
+        - If ``stations`` is an instance of
+          :py:class:`~pyprop8.RegularlyDistributedReceivers`, ``seis`` will
+          have shape ``(source.nsources, receivers.nr, receivers.nphi, nlos)``,
+          where ``receivers.nr`` and ``receivers.nphi`` are the number of grid
+          points in the radial and azimuthal directions, respectively.
+          ``deriv`` will have shape
+          ``(source.nsources, receivers.nr, receivers.nphi, derivatives.nderiv, nlos)``.
+
+        In all cases, if ``squeeze_outputs=True`` (default), then
+        :py:func:`numpy.squeeze` will be called, discarding dimensions with only
+        one entry.
+    """
     if derivatives is None:
         do_derivatives = False
     else:
@@ -1050,6 +1325,23 @@ class DerivativeSwitches:
     def __init__(self,moment_tensor = False, force = False,
                       r = False, phi = False, x = False, y = False,
                       depth = False, time = False,thickness = False, structure = None):
+        '''
+        Object to specify the set of derivatives that are sought.
+
+        :param bool moment_tensor: Compute derivatives wrt six independent
+           components of the moment tensor.
+        :param bool force: Compute derivatives wrt three components of the force
+           vector.
+        :param bool r: Compute derivatives wrt source-receiver distance.
+        :param bool phi: Compute derivatives wrt source-receiver azimuth.
+        :param bool x: Compute derivatives wrt x (east-west) location of source.
+        :param bool y: Compute derivatives wrt y (north-south) location of source.
+        :param bool depth: Compute derivatives wrt source depth.
+        :param bool time: Compute derivatives wrt event time.
+        :param bool thickness: Compute derivatives wrt layer thicknesses
+        :param LayeredStructureModel or None structure: Current model (only
+           required when layer-thickness derivatives are sought).
+        '''
         self.moment_tensor = moment_tensor
         self.force = force
         self.r = r
