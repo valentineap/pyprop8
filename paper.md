@@ -40,6 +40,6 @@ A number of approximations are inherent to the formulation of `pyprop8`, and we 
 These factors should be borne in mind in any case where outputs from `pyprop8` are to be compared to observational data.
 
 # Acknowledgements
-The theory described in [@OToole2011] was originally implemented in Fortran 77 by John Woodhouse and Tom O'Toole (`prop8`). We have benefited from access to a copy of this code, which was distributed informally but never publicly released. This has informed certain aspects of our own implementation, and enabled us to validate our version against theirs.  This work has benefited from financial support from the Australian Research Council under grants DE180100040 and DP200100053, and from the CSIRO Future Science Platform in Deep Earth Imaging.
+The theory described in [@OToole2011] was originally implemented in Fortran 77 by John Woodhouse and Tom O'Toole. We have benefited from access to a copy of this code (`prop8`), which was distributed informally but never publicly released. This has informed certain aspects of our own implementation, and enabled us to validate our version against theirs. This work has benefited from financial support from the Australian Research Council under grants DE180100040 and DP200100053, and from the CSIRO Future Science Platform in Deep Earth Imaging.
 
 # References
