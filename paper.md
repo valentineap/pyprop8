@@ -34,14 +34,12 @@ The theoretical basis for `pyprop8` is described in detail in [@OToole2011], wit
 A number of approximations are inherent to the formulation of `pyprop8`, and we summarise the main ones here:
 
 - The algorithm is framed in a Cartesian geometry, i.e. it assumes a flat Earth. This is a reasonable approximation close to the seismic source, but degrades beyond modest distances (~100km).
-- The earth structure is assumed to be a stack of homogeneous, isotropic layers. Real-world features such as lateral heterogeneity, isotropy and topography are not accounted for.
+- The earth structure is assumed to be a stack of homogeneous, isotropic layers. Real-world features such as lateral heterogeneity, anisotropy and topography are not accounted for.
 - The seismic source is assumed to act at a single point in space: any finite spatial extent of real-world sources is neglected. This approximation degrades close to the source location and as the seismic magnitude increases.
 
-These factors should be borne in mind in any case where outputs from `pyprop8` are to be compared to observational data. 
-
-
+These factors should be borne in mind in any case where outputs from `pyprop8` are to be compared to observational data.
 
 # Acknowledgements
-This work has benefited from financial support from the Australian Research Council under grants DE180100040 and DP200100053, and from the CSIRO Future Science Platform in Deep Earth Imaging.
+The theory described in [@OToole2011] was originally implemented in Fortran 77 by John Woodhouse and Tom O'Toole (`prop8`). We have benefited from access to a copy of this code, which was distributed informally but never publicly released. This has informed certain aspects of our approach to implementation, and enabled us to validate our version against theirs. This work has benefited from financial support from the Australian Research Council under grants DE180100040 and DP200100053, and from the CSIRO Future Science Platform in Deep Earth Imaging. 
 
 # References
