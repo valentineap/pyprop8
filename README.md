@@ -4,6 +4,14 @@ This package provides a lightweight Python implementation of the seismogram calc
 
 Full documentation is [available here](https://pyprop8.readthedocs.io/).
 
+## Installation
+
+The easiest way to get this package is through `pip`, e.g.
+```
+pip install pyprop8
+```
+Alternatively, you can clone this repository and ensure that the contents of the `src/` directory are placed somewhere where they can be found by your Python installation, e.g. by setting the $PYTHONPATH environment variable.
+
 ## Citing this package
 
 If you make use of this code, please acknowledge the work that went into developing it! In particular, if you are preparing a publication, we would appreciate it if you cite both the paper describing the general method, and this specific implementation:
