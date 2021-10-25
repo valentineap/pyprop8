@@ -14,6 +14,7 @@ to source parameters, as described in `O'Toole et al. (2012)
 
    gettingstarted
    seismograms
+   example
    reference
 
 

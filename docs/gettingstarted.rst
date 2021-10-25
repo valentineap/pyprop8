@@ -27,4 +27,4 @@ Some additional convenience functions are found in the module ``pyprop8.utils``.
 
 The package includes further modules that are used internally, but which are unlikely to be useful to end-users.
 
-For more details, read :ref:`walkthrough`.
+For more details, read :ref:`walkthrough` and take a look at the :ref`example`.
