@@ -5,7 +5,7 @@ tags:
   - seismology
   - earthquakes
 authors:
-  - name: Andrew P Valentine # note this makes a footnote saying 'co-first author'
+  - name: Andrew P. Valentine # note this makes a footnote saying 'co-first author'
     orcid: 0000-0001-6134-9351
     affiliation: 1 # (Multiple affiliations must be quoted)
   - name: Malcolm Sambridge
@@ -20,7 +20,7 @@ date: 9 October 2021
 bibliography: paper.bib
 ---
 # Summary
-The package `pyprop8` enables calculation of the response of a 1-D layered halfspace to a seismic source, and also derivatives ('sensitivity kernels') of the wavefield with respect to source parameters. Seismograms, seismic spectra, and measures of static displacement (e.g. GPS, InSAR and field observations) may all be simulated. The method is based on a Thompson-Haskell propagator matrix algorithm, described in [@OToole2011] and [@OToole2012]. The package is entirely written in Python, dependent only on the mainstream libraries `numpy` and `scipy` (plus `matplotlib` for visualisation of the included examples, and where available `tqdm` is used to display progress-bars during computation). As such it is lightweight and easy to deploy across a variety of platforms, making it particularly suited to use for teaching and outreach purposes.
+The package `pyprop8` enables calculation of the response of a 1-D layered halfspace to a seismic source, and also derivatives ('sensitivity kernels') of the wavefield with respect to source parameters. Seismograms, seismic spectra, and measures of static displacement (e.g. GPS, InSAR and field observations) may all be simulated. The method is based on a Thompson-Haskell propagator matrix algorithm, described in [@OToole2011] and [@OToole2012]. The package is entirely written in Python, dependent only on the mainstream libraries `numpy` and `scipy`. As such it is lightweight and easy to deploy across a variety of platforms, making it particularly suited to use for teaching and outreach purposes.
 
 # Statement of need
 Many different tools and packages exist which may be used to simulate seismic wave propagation. Generally, these are designed to support the needs of the seismological research community. As such, they tend to be optimised for computational efficiency, and are partly or entirely dependent on code written in compiled languages. In many cases they interface with a variety of external libraries---for example, those designed to implement particular data formats. As such, installation, deployment and use can be cumbersome, especially for non-expert users and on non-Unix-like operating systems. This can create substantial barriers in contexts such as teaching and outreach, where it may be necessary to accommodate and support users across a wide variety of platforms.
@@ -40,6 +40,6 @@ A number of approximations are inherent to the formulation of `pyprop8`, and we 
 These factors should be borne in mind in any case where outputs from `pyprop8` are to be compared to observational data.
 
 # Acknowledgements
-The theory described in [@OToole2011] was originally implemented in Fortran 77 by John Woodhouse and Tom O'Toole (`prop8`). We have benefited from access to a copy of this code, which was distributed informally but never publicly released. This has informed certain aspects of our approach to implementation, and enabled us to validate our version against theirs. This work has benefited from financial support from the Australian Research Council under grants DE180100040 and DP200100053, and from the CSIRO Future Science Platform in Deep Earth Imaging. 
+The theory described in [@OToole2011] was originally implemented in Fortran 77 by John Woodhouse and Tom O'Toole (`prop8`). We have benefited from access to a copy of this code, which was distributed informally but never publicly released. This has informed certain aspects of our own implementation, and enabled us to validate our version against theirs.  This work has benefited from financial support from the Australian Research Council under grants DE180100040 and DP200100053, and from the CSIRO Future Science Platform in Deep Earth Imaging.
 
 # References
