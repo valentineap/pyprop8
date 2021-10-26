@@ -1309,7 +1309,7 @@ def compute_static(structure,source,stations,los_vector=np.eye(3),derivatives=No
         else:
             raise ValueError ("Unrecognised receiver object, type: %s"%(type(stations)))
         los_vector = los_vector/np.linalg.norm(los_vector,axis=0)
-        print(es,rotator.shape,spectra.shape,los_vector.shape)
+        #print(es,rotator.shape,spectra.shape,los_vector.shape)
         spectra = np.einsum(es,rotator,spectra,los_vector)
         if do_derivatives: d_spectra = np.einsum(esd,rotator,d_spectra,los_vector)
     spectra = spectra.reshape(spectra.shape[:-1])
