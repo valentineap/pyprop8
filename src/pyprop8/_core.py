@@ -75,8 +75,9 @@ class PointSource:
             Cartesian system. Shape 3x3 or Nx3x3.
         :param numpy.ndarray F: The force vector, expressed relative to a
             Cartesian system. Shape 1x3 or Nx1x3.
-        :param datetime.datetime time: The event time, as an instance of
-            :py:class:`datetime.datetime`.
+        :param float or datetime.datetime time: The event time, expressed either
+            as an instance of :py:class:`datetime.datetime`, or as seconds
+            relative to some arbitrary epoch.
         '''
         self.x = x
         self.y = y
