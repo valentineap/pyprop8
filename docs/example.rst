@@ -3,7 +3,7 @@
 =================
 Annotated example
 =================
-This example walks you through the process of calculating simulated seismic observables. This example can also be downloaded as a :download:`standalone Python script <./example.py>`. It is based on an example shown in `O'Toole &
+This example walks you through the process of calculating simulated seismic observables. This example can also be downloaded as a :download:`standalone Python script <./example.py>`. It is based on examples shown in `O'Toole &
 Woodhouse (2011) <https://academic.oup.com/gji/article/187/3/1516/616302>`_.
 
 We begin by importing some standard libraries::
@@ -36,7 +36,7 @@ Next, we define the properties of the seismic source. We choose to use :py:func:
    Mxyz = rtf2xyz(make_moment_tensor(strike, dip, rake, scalar_moment,0,0))
    F =np.zeros([3,1])
 
-For this example, we assume the event occurred at the origin of the coordinate system, at a depth of 34km below the 'top' of the model (which, given the 3km water layer, corresponds to a depth of 31km below the sea floor. We can then create an instance of :py:class:`~pyprop8.PointSource`::
+For this example, we assume the event occurred at the origin of the coordinate system, at a depth of 34km below the 'top' of the model (which, given the 3km water layer, corresponds to a depth of 31km below the sea floor). We can then create an instance of :py:class:`~pyprop8.PointSource`::
 
    event_x = 0
    event_y = 0
@@ -84,3 +84,46 @@ Woodhouse (2011) <https://academic.oup.com/gji/article/187/3/1516/616302>`_:
 .. image:: fig1.png
    :width: 400
    :alt: Seismograms produced by pyprop8
+
+Our second example simulates regional static offset. We change the earth model to one representing a homogeneous half-space, and we change our station distribution to a dense, regular array::
+
+   model_halfspace = pp.LayeredStructureModel([[np.inf,6.00,3.46,2.70]])
+   stations = pp.RegularlyDistributedReceivers(1,151,300,0,360,72)
+
+Now it is straightforward to compute the static offset information::
+
+   static = pp.compute_static(model_halfspace,source,stations)
+   amax = abs(static).max()
+
+To plot the data, we use :py:func:`~matplotlib.pyplot.contourf` to interpolate between stations. The output array, ``static``, has shape ``(nr, nphi, 3)``, where ``nr`` and ``nphi`` are the numbers of stations defining our (polar) grid of receivers. We use :py:meth:`~pyprop8.RegularlyDistributedReceivers.as_xy` to obtain x- and y-coordinates for each station::
+
+   fig = plt.figure(figsize=(8,5))
+   ax = fig.subplots(2,3)
+   ax[0,0].contourf(*stations.as_xy(),static[:,:,1],levels=np.linspace(-1.05*amax,1.05*amax,101),cmap=plt.cm.RdBu)
+   ax[0,1].contourf(*stations.as_xy(),static[:,:,0],levels=np.linspace(-1.05*amax,1.05*amax,101),cmap=plt.cm.RdBu)
+   sc = ax[0,2].contourf(*stations.as_xy(),static[:,:,2],levels=np.linspace(-1.05*amax,1.05*amax,101),cmap=plt.cm.RdBu)
+   for i in range(3):
+       ax[0,i].set_xlim(-100,100)
+       ax[0,i].set_ylim(-100,100)
+       ax[0,i].set_aspect(1)
+       ax[0,i].set_xticks([])
+       ax[0,i].set_yticks([])
+   ax[0,0].set_title('North')
+   ax[0,1].set_title('East')
+   ax[0,2].set_title('Vertical')
+
+   ax[1,1].set_aspect(.1)
+   c = plt.colorbar(sc,cax=ax[1,1],orientation='horizontal',label='Displacement (mm)')
+   c.set_ticks([-amax,0,amax])
+   ax[1,0].set_visible(False)
+   ax[1,2].set_visible(False)
+   plt.tight_layout()
+   plt.savefig('fig2.png',dpi=300)
+   plt.show()
+
+This should produce a figure matching Fig. 2 of `O'Toole &
+Woodhouse (2011) <https://academic.oup.com/gji/article/187/3/1516/616302>`_:
+
+.. image:: fig2.png
+   :width: 600
+   :alt: Static displacements produced by pyprop8
