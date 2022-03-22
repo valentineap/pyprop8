@@ -64,7 +64,7 @@ The first is designed to be used when the wavefield is sought at isolated, pre-d
    stations = np.array([[ 5.3,  6.2],
                         [-2.1,  0.3],
                         [ 1.5, -3.1]]) # 3 pairs of (x,y) coordinates
-   depth = 0 # Surface instruments
+   depth = 4 # Seafloor instruments
    receivers = pp.ListOfReceivers(stations[:,0],stations[:,1],depth)
 
 The computation algorithm currently requires all receivers to lie at a common depth. If multiple depths are required, it will be necessary to divide receivers between multiple :py:class:`~pyprop8.ListOfReceivers` objects and perform simulations for each.
