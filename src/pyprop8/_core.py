@@ -1122,6 +1122,12 @@ def compute_seismograms(structure, source, stations, nt,dt,alpha=None,
             stf[i] = source_time_function(w)
         spectra = np.einsum(ess,spectra,stf)
         if do_derivatives: d_spectra = np.einsum(essd,d_spectra,stf)
+    if source.time!=0: #Time shift
+        tshift = np.zeros(ww.shape[0],dtype='complex128')
+        for i,w in enumerate(ww):
+            tshift[i] = np.exp(-1j*w*source.time)
+        spectra = np.einsum(ess,spectra,tshift)
+        if do_derivatives: d_spectra = np.einsum(essd,d_spectra,tshift)
     #if kind == 'displacement':
         # Fourier integration -- transform without 1/(i w) and then integrate
     stencil = np.tril(np.full([nt,nt+npad],dt,dtype='float64'))
