@@ -604,6 +604,214 @@ class ListOfReceivers(ReceiverSet):
         return self.nr
 
 
+class DerivativeSwitches:
+    def __init__(
+        self,
+        moment_tensor=False,
+        force=False,
+        r=False,
+        phi=False,
+        x=False,
+        y=False,
+        depth=False,
+        time=False,
+        thickness=False,
+        structure=None,
+    ):
+        """
+        Object to specify the set of derivatives that are sought.
+
+        :param bool moment_tensor: Compute derivatives wrt six independent
+           components of the moment tensor.
+        :param bool force: Compute derivatives wrt three components of the force
+           vector.
+        :param bool r: Compute derivatives wrt source-receiver distance.
+        :param bool phi: Compute derivatives wrt source-receiver azimuth.
+        :param bool x: Compute derivatives wrt x (east-west) location of source.
+        :param bool y: Compute derivatives wrt y (north-south) location of source.
+        :param bool depth: Compute derivatives wrt source depth.
+        :param bool time: Compute derivatives wrt event time.
+        :param bool thickness: Compute derivatives wrt layer thicknesses
+        :param LayeredStructureModel or None structure: Current model (only
+           required when layer-thickness derivatives are sought).
+        """
+        self.moment_tensor = moment_tensor
+        self.force = force
+        self.r = r
+        self.phi = phi
+        self.x = x
+        self.y = y
+        self.depth = depth
+        self.time = time
+        self.thickness = thickness
+        self.structure = structure
+
+    @property
+    def nderivs(self):
+        n = 0
+        if self.moment_tensor:
+            n += 6
+        if self.force:
+            n += 3
+        if self.r:
+            n += 1
+        if self.phi:
+            n += 1
+        if self.x:
+            n += 1
+        if self.y:
+            n += 1
+        if self.depth:
+            n += 1
+        if self.time:
+            n += 1
+        if self.thickness:
+            try:
+                n += (
+                    self.structure.nlayers - 1
+                )  # We don't want derivatives wrt the infinite layer
+            except AttributeError:
+                raise ValueError(
+                    "DerivativeSwitches object requires knowledge of earth model to enable structure derivatives. Pass `structure=<model>` at creation or set `.structure` attribute."
+                )
+        return n
+
+    @property
+    def i_mt(self):
+        if not self.moment_tensor:
+            return None
+        i = 0
+        return i
+
+    @property
+    def i_f(self):
+        if not self.force:
+            return None
+        i = 0
+        if self.moment_tensor:
+            i += 6
+        return i
+
+    @property
+    def i_r(self):
+        if not self.r:
+            return None
+        i = 0
+        if self.moment_tensor:
+            i += 6
+        if self.force:
+            i += 3
+        return i
+
+    @property
+    def i_phi(self):
+        if not self.phi:
+            return None
+        i = 0
+        if self.moment_tensor:
+            i += 6
+        if self.force:
+            i += 3
+        if self.r:
+            i += 1
+        return i
+
+    @property
+    def i_x(self):
+        if not self.x:
+            return None
+        i = 0
+        if self.moment_tensor:
+            i += 6
+        if self.force:
+            i += 3
+        if self.r:
+            i += 1
+        if self.phi:
+            i += 1
+        return i
+
+    @property
+    def i_y(self):
+        if not self.y:
+            return None
+        i = 0
+        if self.moment_tensor:
+            i += 6
+        if self.force:
+            i += 3
+        if self.r:
+            i += 1
+        if self.phi:
+            i += 1
+        if self.x:
+            i += 1
+        return i
+
+    @property
+    def i_dep(self):
+        if not self.depth:
+            return None
+        i = 0
+        if self.moment_tensor:
+            i += 6
+        if self.force:
+            i += 3
+        if self.r:
+            i += 1
+        if self.phi:
+            i += 1
+        if self.x:
+            i += 1
+        if self.y:
+            i += 1
+        return i
+
+    @property
+    def i_time(self):
+        if not self.time:
+            return None
+        i = 0
+        if self.moment_tensor:
+            i += 6
+        if self.force:
+            i += 3
+        if self.r:
+            i += 1
+        if self.phi:
+            i += 1
+        if self.x:
+            i += 1
+        if self.y:
+            i += 1
+        if self.depth:
+            i += 1
+        return i
+
+    @property
+    def i_thickness(self):
+        if not self.thickness:
+            return None
+        i = 0
+        if self.moment_tensor:
+            i += 6
+        if self.force:
+            i += 3
+        if self.r:
+            i += 1
+        if self.phi:
+            i += 1
+        if self.x:
+            i += 1
+        if self.y:
+            i += 1
+        if self.depth:
+            i += 1
+        if self.time:
+            i += 1
+        return i
+
+
 def kIntegrationStencil(kmin, kmax, nk):
     """
     An integration stencil based on the trapezium rule.
@@ -1407,7 +1615,6 @@ def compute_spectra(
             return spectra[:, :, ss, :, :], d_spectra[:, :, ss, :, :, :]
 
 
-
 def compute_seismograms(
     structure,
     source,
@@ -1807,213 +2014,3 @@ def compute_static(
         return spectra
     else:
         return spectra, d_spectra
-
-
-class DerivativeSwitches:
-    def __init__(
-        self,
-        moment_tensor=False,
-        force=False,
-        r=False,
-        phi=False,
-        x=False,
-        y=False,
-        depth=False,
-        time=False,
-        thickness=False,
-        structure=None,
-    ):
-        """
-        Object to specify the set of derivatives that are sought.
-
-        :param bool moment_tensor: Compute derivatives wrt six independent
-           components of the moment tensor.
-        :param bool force: Compute derivatives wrt three components of the force
-           vector.
-        :param bool r: Compute derivatives wrt source-receiver distance.
-        :param bool phi: Compute derivatives wrt source-receiver azimuth.
-        :param bool x: Compute derivatives wrt x (east-west) location of source.
-        :param bool y: Compute derivatives wrt y (north-south) location of source.
-        :param bool depth: Compute derivatives wrt source depth.
-        :param bool time: Compute derivatives wrt event time.
-        :param bool thickness: Compute derivatives wrt layer thicknesses
-        :param LayeredStructureModel or None structure: Current model (only
-           required when layer-thickness derivatives are sought).
-        """
-        self.moment_tensor = moment_tensor
-        self.force = force
-        self.r = r
-        self.phi = phi
-        self.x = x
-        self.y = y
-        self.depth = depth
-        self.time = time
-        self.thickness = thickness
-        self.structure = structure
-
-    @property
-    def nderivs(self):
-        n = 0
-        if self.moment_tensor:
-            n += 6
-        if self.force:
-            n += 3
-        if self.r:
-            n += 1
-        if self.phi:
-            n += 1
-        if self.x:
-            n += 1
-        if self.y:
-            n += 1
-        if self.depth:
-            n += 1
-        if self.time:
-            n += 1
-        if self.thickness:
-            try:
-                n += (
-                    self.structure.nlayers - 1
-                )  # We don't want derivatives wrt the infinite layer
-            except AttributeError:
-                raise ValueError(
-                    "DerivativeSwitches object requires knowledge of earth model to enable structure derivatives. Pass `structure=<model>` at creation or set `.structure` attribute."
-                )
-        return n
-
-    @property
-    def i_mt(self):
-        if not self.moment_tensor:
-            return None
-        i = 0
-        return i
-
-    @property
-    def i_f(self):
-        if not self.force:
-            return None
-        i = 0
-        if self.moment_tensor:
-            i += 6
-        return i
-
-    @property
-    def i_r(self):
-        if not self.r:
-            return None
-        i = 0
-        if self.moment_tensor:
-            i += 6
-        if self.force:
-            i += 3
-        return i
-
-    @property
-    def i_phi(self):
-        if not self.phi:
-            return None
-        i = 0
-        if self.moment_tensor:
-            i += 6
-        if self.force:
-            i += 3
-        if self.r:
-            i += 1
-        return i
-
-    @property
-    def i_x(self):
-        if not self.x:
-            return None
-        i = 0
-        if self.moment_tensor:
-            i += 6
-        if self.force:
-            i += 3
-        if self.r:
-            i += 1
-        if self.phi:
-            i += 1
-        return i
-
-    @property
-    def i_y(self):
-        if not self.y:
-            return None
-        i = 0
-        if self.moment_tensor:
-            i += 6
-        if self.force:
-            i += 3
-        if self.r:
-            i += 1
-        if self.phi:
-            i += 1
-        if self.x:
-            i += 1
-        return i
-
-    @property
-    def i_dep(self):
-        if not self.depth:
-            return None
-        i = 0
-        if self.moment_tensor:
-            i += 6
-        if self.force:
-            i += 3
-        if self.r:
-            i += 1
-        if self.phi:
-            i += 1
-        if self.x:
-            i += 1
-        if self.y:
-            i += 1
-        return i
-
-    @property
-    def i_time(self):
-        if not self.time:
-            return None
-        i = 0
-        if self.moment_tensor:
-            i += 6
-        if self.force:
-            i += 3
-        if self.r:
-            i += 1
-        if self.phi:
-            i += 1
-        if self.x:
-            i += 1
-        if self.y:
-            i += 1
-        if self.depth:
-            i += 1
-        return i
-
-    @property
-    def i_thickness(self):
-        if not self.thickness:
-            return None
-        i = 0
-        if self.moment_tensor:
-            i += 6
-        if self.force:
-            i += 3
-        if self.r:
-            i += 1
-        if self.phi:
-            i += 1
-        if self.x:
-            i += 1
-        if self.y:
-            i += 1
-        if self.depth:
-            i += 1
-        if self.time:
-            i += 1
-        return i
-
-
