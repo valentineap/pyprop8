@@ -1,4 +1,4 @@
-__doc__='''
+__doc__ = """
 pyprop8
 -------
 This package enables computation of the seismic response of a layered elastic
@@ -20,12 +20,17 @@ O'Toole, T.B., A.P. Valentine & J.H. Woodhouse (2012), "Centroid–moment tensor
 For the avoidance of doubt: the examples presented in the above papers were
 generated using a Fortran implementation of the algorithm (`prop8`), and not
 with the current package.
-'''
+"""
 
 
-from ._core import LayeredStructureModel, \
-                    PointSource, \
-                    RegularlyDistributedReceivers,ListOfReceivers,\
-                    DerivativeSwitches, \
-                    compute_seismograms,compute_spectra,compute_static, \
-                    kIntegrationStencil
+from ._core import (
+    LayeredStructureModel,
+    PointSource,
+    RegularlyDistributedReceivers,
+    ListOfReceivers,
+    DerivativeSwitches,
+    compute_seismograms,
+    compute_spectra,
+    compute_static,
+    kIntegrationStencil,
+)
