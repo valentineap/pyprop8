@@ -12,6 +12,14 @@ pip install pyprop8
 ```
 Alternatively, you can clone this repository and ensure that the contents of the `src/` directory are placed somewhere where they can be found by your Python installation, e.g. by setting the $PYTHONPATH environment variable.
 
+## Dependencies
+
+The core functions of this package depend only on:
+- [numpy](https://numpy.org)
+- [scipy](https://scipy.org)
+
+`pyprop8` will also use [`tqdm`](https://github.com/tqdm/tqdm) if it is available. The package also includes some sample visualisation functions which are dependent on [`matplotlib`](https://matplotlib.org').
+
 ## Citing this package
 
 If you make use of this code, please acknowledge the work that went into developing it! In particular, if you are preparing a publication, we would appreciate it if you cite both the paper describing the general method, and this specific implementation:
