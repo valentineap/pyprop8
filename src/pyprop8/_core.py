@@ -1863,6 +1863,30 @@ def compute_seismograms(
                         "Lateral derivatives not available with RegularlyDistributedReceivers, as\n"
                         "source is required to lie on central axis. Consider using ListOfReceivers."
                     )
+            if derivatives.phi:
+                if type(stations) is ListOfReceivers:
+                    deriv[:, :, derivatives.i_phi, 0, :] += np.einsum(
+                        "srt,r->srt", seis[:, :, 0, :], -np.sin(stations.pp)
+                    ) + np.einsum("srt,r->srt", seis[:, :, 1, :], -np.cos(stations.pp))
+                    deriv[:, :, derivatives.i_phi, 1, :] += np.einsum(
+                        "srt,r->srt", seis[:, :, 0, :], np.cos(stations.pp)
+                    ) + np.einsum("srt,r->srt", seis[:, :, 1, :], -np.sin(stations.pp))
+                elif type(stations) is RegularlyDistributedReceivers:
+                    deriv[:, :, :, derivatives.i_phi, 0, :] += np.einsum(
+                        "srpt,p->srpt", seis[:, :, :, 0, :], -np.sin(stations.pp)
+                    ) + np.einsum(
+                        "srpt,p->srpt", seis[:, :, :, 1, :], -np.cos(stations.pp)
+                    )
+                    deriv[:, :, :, derivatives.i_phi, 1, :] += np.einsum(
+                        "srpt,p->srpt", seis[:, :, :, 0, :], np.cos(stations.pp)
+                    ) + np.einsum(
+                        "srpt,p->srpt", seis[:, :, :, 1, :], -np.sin(stations.pp)
+                    )
+                else:
+                    raise ValueError(
+                        "Unrecognised receiver object, type: %s" % (type(stations))
+                    )
+
         # Do this rotation *after* derivatives as we need the unrotated seismograms for x/y deriv
         seis = np.einsum(esr, rotator, seis)
     if squeeze_outputs:

@@ -16,6 +16,7 @@ def test_spatial_derivatives(
     delta=1e-4,
     delta_scales={"depth": 1, "phi": 1e-4, "r": 1},
     source_time_function=None,
+    xyz=True,
 ):
     """
     Compute finite-difference derivatives and compare with the 'analytic'
@@ -74,7 +75,7 @@ def test_spatial_derivatives(
         pad_frac=pad_frac,
         derivatives=derivatives,
         source_time_function=source_time_function,
-        xyz=False,
+        xyz=xyz,
     )
     assert len(seis0.shape) == nDimSta + nDimChannels + nDimTime
     assert len(drv.shape) == nDimSta + nDimChannels + nDimTime + nDimDerivs
@@ -94,7 +95,7 @@ def test_spatial_derivatives(
             pad_frac=pad_frac,
             derivatives=None,
             source_time_function=source_time_function,
-            xyz=False,
+            xyz=xyz,
         )
         fd = (seis - seis0) / (delta * delta_scales["r"])
         err = drv[deriv_comp(derivatives.i_r)] - fd
@@ -119,9 +120,9 @@ def test_spatial_derivatives(
             pad_frac=pad_frac,
             derivatives=None,
             source_time_function=source_time_function,
-            xyz=False,
+            xyz=xyz,
         )
-        fd = (seis - seis0)*(180/np.pi) / (delta * delta_scales["phi"])
+        fd = (seis - seis0) * (180 / np.pi) / (delta * delta_scales["phi"])
         err = drv[deriv_comp(derivatives.i_phi)] - fd
         if nDimTime == 0:
             norm = abs(drv[deriv_comp(derivatives.i_phi)])
@@ -143,7 +144,7 @@ def test_spatial_derivatives(
             pad_frac=pad_frac,
             derivatives=None,
             source_time_function=source_time_function,
-            xyz=False,
+            xyz=xyz,
         )
         fd = (seis - seis0) / delta
         err = drv[deriv_comp(derivatives.i_dep)] - fd
