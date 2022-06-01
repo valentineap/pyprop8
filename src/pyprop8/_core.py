@@ -613,7 +613,7 @@ class DerivativeSwitches:
         phi=False,
         x=False,
         y=False,
-        depth=False,
+        z=False,
         time=False,
         thickness=False,
         structure=None,
@@ -629,7 +629,7 @@ class DerivativeSwitches:
         :param bool phi: Compute derivatives wrt source-receiver azimuth.
         :param bool x: Compute derivatives wrt x (east-west) location of source.
         :param bool y: Compute derivatives wrt y (north-south) location of source.
-        :param bool depth: Compute derivatives wrt source depth.
+        :param bool z: Compute derivatives wrt z (vertical) location of source.
         :param bool time: Compute derivatives wrt event time.
         :param bool thickness: Compute derivatives wrt layer thicknesses
         :param LayeredStructureModel or None structure: Current model (only
@@ -641,7 +641,7 @@ class DerivativeSwitches:
         self.phi = phi
         self.x = x
         self.y = y
-        self.depth = depth
+        self.z = z
         self.time = time
         self.thickness = thickness
         self.structure = structure
@@ -661,7 +661,7 @@ class DerivativeSwitches:
             n += 1
         if self.y:
             n += 1
-        if self.depth:
+        if self.z:
             n += 1
         if self.time:
             n += 1
@@ -749,8 +749,8 @@ class DerivativeSwitches:
         return i
 
     @property
-    def i_dep(self):
-        if not self.depth:
+    def i_z(self):
+        if not self.z:
             return None
         i = 0
         if self.moment_tensor:
@@ -784,7 +784,7 @@ class DerivativeSwitches:
             i += 1
         if self.y:
             i += 1
-        if self.depth:
+        if self.z:
             i += 1
         return i
 
@@ -805,7 +805,7 @@ class DerivativeSwitches:
             i += 1
         if self.y:
             i += 1
-        if self.depth:
+        if self.z:
             i += 1
         if self.time:
             i += 1
@@ -1072,8 +1072,8 @@ def compute_spectra(
                     for i in range(nsources):
                         d_b[k != 0, i, j0 + j, :4, :] = (H_psv @ s_psv).value
                         d_b[k != 0, i, j0 + j, 4:, :] = (H_sh @ s_sh).value
-            if derivatives.depth:
-                j0 = derivatives.i_dep
+            if derivatives.z:
+                j0 = derivatives.i_z
                 for i in range(nsources):
                     s_psv, s_sh = sourceVector_ddep(
                         source.Mxyz[i, :, :],
@@ -1474,8 +1474,8 @@ def compute_spectra(
                         eimphi,
                         optimize=plan_3,
                     )
-            if derivatives.depth:
-                j0 = derivatives.i_dep
+            if derivatives.z:
+                j0 = derivatives.i_z
                 d_spectra[:, :, ss, j0, 0, iom] = np.einsum(
                     es1, k * k_wts, d_b[:, :, j0, 1, :], jvp, eimphi, optimize=plan_1
                 ) + np.einsum(

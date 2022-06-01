@@ -21,7 +21,7 @@ stations = pp.RegularlyDistributedReceivers(39.6,39.6,1,90-118.2,90-118.2,1,degr
 event = pp.PointSource(0,0,35,rtf2xyz(np.array([[ 0.3406, 0.0005, 0.1610],
                                                 [ 0.0005, 0.7798, 0.1430],
                                                 [ 0.1610, 0.1430, 0.6349]])),np.array([[0.],[0.],[0.]]),0)
-drv = pp.DerivativeSwitches(moment_tensor=True,depth=True,x=True,y=True,time=True)
+drv = pp.DerivativeSwitches(moment_tensor=True,z=True,x=True,y=True,time=True)
 
 stf = lambda w: stf_trapezoidal(w,3,6)*clp_filter(w,0.05*2*np.pi,0.2*2*np.pi)
 tt,seis,deriv = pp.compute_seismograms(model,event,stations,81,0.5,source_time_function = stf,derivatives=drv,pad_frac=0.5)
@@ -67,13 +67,13 @@ plt.tight_layout()
 plt.show()
 
 fig = plt.figure()
-deriv[drv.i_dep,:,:]*=10
+deriv[drv.i_z,:,:]*=10
 deriv[drv.i_x,:,:]*=10
 deriv[drv.i_y,:,:]*=10
 deriv[drv.i_time,:,:]*=2
 amax = abs(deriv[drv.i_mt+6:,:,:]).max()
 amax = 1.025*max([amax,abs(seis).max()])
-dcomp = [drv.i_dep,drv.i_y,drv.i_x,drv.i_time]
+dcomp = [drv.i_z,drv.i_y,drv.i_x,drv.i_time]
 complabel = ["Depth","Latitude","Longitude","Time"]
 for idrv in range(4):
     for icomp in range(3):
