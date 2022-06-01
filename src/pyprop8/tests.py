@@ -38,7 +38,7 @@ def test_spatial_derivatives(
     if source_time_function is None:
         source_time_function = lambda w: stf_trapezoidal(w, 3, 6)
     if derivatives is None:
-        derivatives = pp.DerivativeSwitches(r=True, phi=True, depth=True)
+        derivatives = pp.DerivativeSwitches(r=True, phi=True, z=True)
     if type(delta_scales) is not defaultdict:
         # Make delta_scales have a default value of '1'
         delta_scales = defaultdict(lambda: 1, **delta_scales)
@@ -127,7 +127,7 @@ def test_spatial_derivatives(
         maxerr = (abs(err) / norm.reshape(*norm.shape, 1)).max()
         drverrs += [maxerr]
         print("Max error, 'phi' derivative: %f%%" % (100 * maxerr))
-    if derivatives.depth:
+    if derivatives.z:
         source_pert = source.copy()
         source_pert.dep -= delta * delta_scales["depth"]
         tt, seis = pp.compute_seismograms(
@@ -142,11 +142,11 @@ def test_spatial_derivatives(
             source_time_function=source_time_function,
         )
         fd = (seis - seis0) / delta
-        err = drv[deriv_comp(derivatives.i_dep)] - fd
+        err = drv[deriv_comp(derivatives.i_z)] - fd
         if nDimTime == 0:
-            norm = abs(drv[deriv_comp(derivatives.i_dep)])
+            norm = abs(drv[deriv_comp(derivatives.i_z)])
         else:
-            norm = abs(drv[deriv_comp(derivatives.i_dep)]).max(-1)
+            norm = abs(drv[deriv_comp(derivatives.i_z)]).max(-1)
         maxerr = (abs(err) / norm.reshape(*norm.shape, 1)).max()
         drverrs += [maxerr]
         print("Max error, 'depth' derivative: %f%%" % (100 * maxerr))
