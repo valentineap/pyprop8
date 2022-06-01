@@ -26,7 +26,7 @@ def tests():
     )
     stations = pp.RegularlyDistributedReceivers(30, 50, 3, 0, 360, 3, depth=3).asListOfReceivers()
 
-    derivs = pp.DerivativeSwitches(x=True, y=True, depth=True)
+    derivs = pp.DerivativeSwitches(x=True, y=True, z=True)
 
     source_time_function = lambda w: stf_trapezoidal(w, 3, 6)
 
@@ -49,10 +49,13 @@ def tests():
         source_time_function=source_time_function,
         xyz=True,
     )
+
+    epsilon = 1e-4
     print(" 3. Comparing with finite-difference derivatives.")
+    print("    Using finite-difference perturbation eps = %.2f metres"%(epsilon*1000))
     print("    a. Perturbing source in x.")
 
-    epsilon = 0.001
+
     source_x = source.copy()
     source_x.x += epsilon
     
@@ -115,9 +118,52 @@ def tests():
     )
 
     fd = (seis_z - seis0)/epsilon # finite difference estimate
-    max_z = abs(drv[:,derivs.i_dep,:,:]).max(-1).reshape(stations.nstations,3,1) # Maximum absolute value of trace
-    perc_err_z = 100*(abs(drv[:,derivs.i_dep,:,:]-fd)/max_z) #For each trace, calculate finite difference 'error' as percentage of trace amplitude
+    max_z = abs(drv[:,derivs.i_z,:,:]).max(-1).reshape(stations.nstations,3,1) # Maximum absolute value of trace
+    perc_err_z = 100*(abs(drv[:,derivs.i_z,:,:]-fd)/max_z) #For each trace, calculate finite difference 'error' as percentage of trace amplitude
     print("       Worst-case difference between 'true' and finite-difference derivatives: %.3f%%"%perc_err_z.max())
+
+    print(" 4. Computing static displacement field")
+    stat0, drv = pp.compute_static(
+        model,
+        source,
+        stations,
+        derivatives=derivs,
+    )
+    
+    print(" 5. Comparing with finite-difference derivatives")
+    print("    a. Perturbing source in x.")
+   
+    stat_x = pp.compute_static(
+        model,
+        source_x,
+        stations,
+    )
+    fd = (stat_x - stat0)/epsilon
+    max_x  = abs(drv[:,derivs.i_x,:]).max(0).reshape(1,3)
+    perc_err_x = 100*abs(drv[:,derivs.i_x,:]-fd)/max_x
+    print("       Worst-case difference between 'true' and finite-difference derivatives: %.3f%%"%(perc_err_x.max()))
+    print("    b. Perturbing source in y.")
+   
+    stat_y = pp.compute_static(
+        model,
+        source_y,
+        stations,
+    )
+    fd = (stat_y - stat0)/epsilon
+    max_y  = abs(drv[:,derivs.i_y,:]).max(0).reshape(1,3)
+    perc_err_y = 100*abs(drv[:,derivs.i_y,:]-fd)/max_y
+    print("       Worst-case difference between 'true' and finite-difference derivatives: %.3f%%"%(perc_err_y.max()))
+    print("    c. Perturbing source in z.")
+   
+    stat_z = pp.compute_static(
+        model,
+        source_z,
+        stations,
+    )
+    fd = (stat_z - stat0)/epsilon
+    max_z  = abs(drv[:,derivs.i_z,:]).max(0).reshape(1,3)
+    perc_err_z = 100*abs(drv[:,derivs.i_z,:]-fd)/max_z
+    print("       Worst-case difference between 'true' and finite-difference derivatives: %.3f%%"%(perc_err_z.max()))
 
 if __name__ == "__main__":
     tests()
