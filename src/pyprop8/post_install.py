@@ -3,7 +3,7 @@ from pyprop8.utils import stf_trapezoidal,make_moment_tensor,rtf2xyz
 import numpy as np
 
 def tests():
-    print("Running tests.")
+    print("Running tests. Using `pyprop8` from: %s"%pp.__file__)
     print("")
     print(" 1. Creating objects")
     model = pp.LayeredStructureModel(
@@ -24,7 +24,7 @@ def tests():
         np.zeros([3, 1]),
         0,
     )
-    stations = pp.RegularlyDistributedReceivers(30, 50, 3, 0, 360, 3, depth=3).asListOfReceivers()
+    stations = pp.RegularlyDistributedReceivers(30, 100, 7, 0, 360, 10, depth=3).asListOfReceivers()
 
     derivs = pp.DerivativeSwitches(x=True, y=True, z=True)
 
@@ -138,6 +138,7 @@ def tests():
         source_x,
         stations,
     )
+
     fd = (stat_x - stat0)/epsilon
     max_x  = abs(drv[:,derivs.i_x,:]).max(0).reshape(1,3)
     perc_err_x = 100*abs(drv[:,derivs.i_x,:]-fd)/max_x
@@ -150,6 +151,7 @@ def tests():
         stations,
     )
     fd = (stat_y - stat0)/epsilon
+
     max_y  = abs(drv[:,derivs.i_y,:]).max(0).reshape(1,3)
     perc_err_y = 100*abs(drv[:,derivs.i_y,:]-fd)/max_y
     print("       Worst-case difference between 'true' and finite-difference derivatives: %.3f%%"%(perc_err_y.max()))

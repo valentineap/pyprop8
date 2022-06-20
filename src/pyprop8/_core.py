@@ -2024,9 +2024,67 @@ def compute_static(
             )
         los_vector = los_vector / np.linalg.norm(los_vector, axis=0)
         # print(es,rotator.shape,spectra.shape,los_vector.shape)
-        spectra = np.einsum(es, rotator, spectra, los_vector)
+        
         if do_derivatives:
+            # s_xyz = l.T.R.s_rtf
+            # D[s_xyz] = l.T.R.D[s_rtf] + l.T.D[R].s_rtf
+            # R = [ cos(f) -sin(f) ]
+            #     [ sin(f)  cos(f) ]
+            # dR/dq = [ -sin(f) df/dq -cos(f) df/dq ]
+            #         [  cos(f) df/dq -sin(f) df/dq ]
             d_spectra = np.einsum(esd, rotator, d_spectra, los_vector)
+            
+            if type(stations) is ListOfReceivers:
+                if derivatives.x:
+                    dRdx = np.zeros([stations.nstations, 3, 3])
+                    dRdx[:, 0, 0] = -np.sin(stations.pp)**2 / stations.rr
+                    dRdx[:, 0, 1] = -np.cos(stations.pp)*np.sin(stations.pp)/stations.rr 
+                    dRdx[:, 1, 0] =  np.cos(stations.pp)*np.sin(stations.pp)/stations.rr
+                    dRdx[:, 1, 1] = -np.sin(stations.pp)**2 / stations.rr
+                    d_spectra[:, :, derivatives.i_x, :] += np.einsum('ric,srcw,%s->sr%sw' % eslos,dRdx,spectra,los_vector)
+                if derivatives.y:
+                    dRdx = np.zeros([stations.nstations, 3, 3])
+                    dRdx[:, 0, 0] = np.sin(stations.pp)*np.cos(stations.pp) / stations.rr 
+                    dRdx[:, 0, 1] = np.cos(stations.pp)**2 / stations.rr 
+                    dRdx[:, 1, 0] = -np.cos(stations.pp)**2 / stations.rr 
+                    dRdx[:, 1, 1] = np.sin(stations.pp)*np.cos(stations.pp) / stations.rr 
+                    d_spectra[:, :, derivatives.i_y, :] += np.einsum('ric,srcw,%s->sr%sw' % eslos,dRdx,spectra,los_vector)
+                if derivatives.phi:
+                    dRdx = np.zeros([stations.nstations, 3, 3])
+                    dRdx[:, 0, 0] = -np.sin(stations.pp)
+                    dRdx[:, 0, 1] = -np.cos(stations.pp)
+                    dRdx[:, 1, 0] =  np.cos(stations.pp)
+                    dRdx[:, 1, 1] = -np.sin(stations.pp)
+                    d_spectra[:, :, derivatives.i_phi, :] += np.einsum('ric,srcw,%s->sr%sw' % eslos,dRdx,spectra,los_vector)
+            elif type(stations) is RegularlyDistributedReceivers:
+                phi = np.tile(stations.pp, stations.nr).reshape(stations.nr, stations.nphi)
+                rr = np.tile(stations.rr, stations.nphi).reshape(stations.nphi,stations.nr).T
+                if derivatives.x:
+                    dRdx = np.zeros([stations.nr, stations.nphi, 3, 3])                   
+                    dRdx[:, :, 0, 0] = -np.sin(phi)**2 / rr
+                    dRdx[:, :, 0, 1] = -np.cos(phi)*np.sin(phi) / rr
+                    dRdx[:, :, 1, 0] =  np.cos(phi)*np.sin(phi) / rr
+                    dRdx[:, :, 1, 1] = -np.sin(phi)**2 / rr
+                    d_spectra[:, :, derivatives.i_x, :] += np.einsum('rpic,srpcw,%s->srp%sw' % esloc, dRdx, spectra,los_vector)
+                if derivatives.y:
+                    dRdx = np.zeros([stations.nr, stations.nphi, 3, 3])                   
+                    dRdx[:, :, 0, 0] =  np.sin(phi)*np.cos(phi) / rr
+                    dRdx[:, :, 0, 1] =  np.cos(phi)**2 / rr
+                    dRdx[:, :, 1, 0] = -np.cos(phi)**2 / rr
+                    dRdx[:, :, 1, 1] =  np.sin(phi)*np.cos(phi) / rr
+                    d_spectra[:, :, derivatives.i_y, :] += np.einsum('rpic,srpcw,%s->srp%sw' % esloc, dRdx, spectra,los_vector)
+                if derivatives.phi:
+                    dRdx = np.zeros([stations.nr, stations.nphi, 3, 3])                   
+                    dRdx[:, :, 0, 0] = -np.sin(phi)
+                    dRdx[:, :, 0, 1] = -np.cos(phi)
+                    dRdx[:, :, 1, 0] =  np.cos(phi)
+                    dRdx[:, :, 1, 1] = -np.sin(phi)
+                    d_spectra[:, :, derivatives.i_phi, :] += np.einsum('rpic,srpcw,%s->srp%sw' % esloc, dRdx, spectra,los_vector)
+            else:
+                raise ValueError(
+                    "Unrecognised receiver object, type: %s" % (type(stations))
+                )
+        spectra = np.einsum(es, rotator, spectra, los_vector)
     spectra = spectra.reshape(spectra.shape[:-1])
     if do_derivatives:
         d_spectra = d_spectra.reshape(d_spectra.shape[:-1])
