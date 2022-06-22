@@ -2086,7 +2086,7 @@ def compute_static(
                     dRdx[:, :, 1, 0] = np.cos(phi) * np.sin(phi) / rr
                     dRdx[:, :, 1, 1] = -np.sin(phi) ** 2 / rr
                     d_spectra[:, :, derivatives.i_x, :] += np.einsum(
-                        "rpic,srpcw,%s->srp%sw" % esloc, dRdx, spectra, los_vector
+                        "rpic,srpcw,%s->srp%sw" % eslos, dRdx, spectra, los_vector
                     )
                 if derivatives.y:
                     dRdx = np.zeros([stations.nr, stations.nphi, 3, 3])
@@ -2095,7 +2095,7 @@ def compute_static(
                     dRdx[:, :, 1, 0] = -np.cos(phi) ** 2 / rr
                     dRdx[:, :, 1, 1] = np.sin(phi) * np.cos(phi) / rr
                     d_spectra[:, :, derivatives.i_y, :] += np.einsum(
-                        "rpic,srpcw,%s->srp%sw" % esloc, dRdx, spectra, los_vector
+                        "rpic,srpcw,%s->srp%sw" % eslos, dRdx, spectra, los_vector
                     )
                 if derivatives.phi:
                     dRdx = np.zeros([stations.nr, stations.nphi, 3, 3])
@@ -2104,7 +2104,7 @@ def compute_static(
                     dRdx[:, :, 1, 0] = np.cos(phi)
                     dRdx[:, :, 1, 1] = -np.sin(phi)
                     d_spectra[:, :, derivatives.i_phi, :] += np.einsum(
-                        "rpic,srpcw,%s->srp%sw" % esloc, dRdx, spectra, los_vector
+                        "rpic,srpcw,%s->srp%sw" % eslos, dRdx, spectra, los_vector
                     )
             else:
                 raise ValueError(
