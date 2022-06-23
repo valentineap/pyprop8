@@ -23,7 +23,10 @@ event = pp.PointSource(0,0,35,rtf2xyz(np.array([[ 0.3406, 0.0005, 0.1610],
                                                 [ 0.1610, 0.1430, 0.6349]])),np.array([[0.],[0.],[0.]]),0)
 drv = pp.DerivativeSwitches(moment_tensor=True,z=True,x=True,y=True,time=True)
 
-stf = lambda w: stf_trapezoidal(w,3,6)*clp_filter(w,0.05*2*np.pi,0.2*2*np.pi)
+
+# Appears that the paper just uses the cosine low-pass filter
+# and not any further source time-function
+stf = lambda w: clp_filter(w,0.05*2*np.pi,0.2*2*np.pi)
 tt,seis,deriv = pp.compute_seismograms(model,event,stations,81,0.5,source_time_function = stf,derivatives=drv,pad_frac=0.5)
 
 nez = [1,0,2] #Reorder seismogram components to match O'Toole's figure
