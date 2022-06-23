@@ -4,7 +4,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 '''This example aims to reproduce the first couple of figures presented in
-O'Toole, Valentine & Woodhouse (2012, doi: 10.1111/j.1365-246X.2012.05608.x).'''
+O'Toole, Valentine & Woodhouse (2012, doi: 10.1111/j.1365-246X.2012.05608.x).
+
+As various details are not fully and unambiguously defined in the paper, there
+may be some minor differences between the figures there and those output by this
+code.
+'''
 
 # Table 1:
 model = pp.LayeredStructureModel(np.array([[ 0.10, 3.20, 2.00, 2.10],
