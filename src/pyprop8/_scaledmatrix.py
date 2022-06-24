@@ -118,7 +118,6 @@ class ScaledMatrixStack:
         new = scm.copy()
         ```
         """
-        "
         
         if dest is None:
             return ScaledMatrixStack(self.M, self.scale, copy=True)
