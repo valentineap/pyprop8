@@ -75,8 +75,8 @@ def underlyingHalfspaceBoundary(omega, k, sigma, mu, rho, sh=False):
 def sourceVector(MT, F, k, sigma, mu):
     # (2011) Eqs. 21 & 22.
     nk = k.shape[0]
-    s = np.zeros([nk, 4, 5], dtype="complex128") # P-SV system, eq.21
-    s2 = np.zeros([nk, 2, 5], dtype="complex128") # SH system, eq. 22
+    s = np.zeros([nk, 4, 5], dtype="complex128")  # P-SV system, eq.21
+    s2 = np.zeros([nk, 2, 5], dtype="complex128")  # SH system, eq. 22
     s[:, 0, 2] = MT[2, 2] / sigma
     s[:, 2, 2] = -F[2]
     s[:, 3, 2] = (
@@ -106,8 +106,8 @@ def sourceVector_ddep(MT, F, omega, k, sigma, mu, rho):
     lam = sigma - 2 * mu
     gamma = mu * (3 * lam + 2 * mu) / (lam + 2 * mu)
     nk = k.shape[0]
-    s = np.zeros([nk, 4, 5], dtype="complex128") # P-SV system, eq. A37
-    s2 = np.zeros([nk, 2, 5], dtype="complex128") # SH system, eq. A38
+    s = np.zeros([nk, 4, 5], dtype="complex128")  # P-SV system, eq. A37
+    s2 = np.zeros([nk, 2, 5], dtype="complex128")  # SH system, eq. A38
     s[:, 0, 2] = F[2] / sigma
     s[:, 1, 2] = (
         -k
@@ -174,14 +174,14 @@ def exphyp(x):
 
 
 def propagate_zerofreq(k, dz, sigma, mu, rho, m2=None, m4=None, m6=None, inplace=True):
-    """ Perform propagation through a layer of thickness dz and physical
+    """Perform propagation through a layer of thickness dz and physical
     properties (sigma, mu, rho) for a stack of minor vectors corresponding to
     spatial wavenumbers given in array k. Special case for zero (temporal) frequency.
     """
     nk = k.shape[0]
     c, s, scale = exphyp(dz * k)
     # Terms that don't change under h->-h
-    if m2 is not None: 
+    if m2 is not None:
         # (2011) Eq. 84
         M = np.zeros((nk, 2, 2), dtype="complex128")
         M[:, 0, 0] = c
@@ -839,8 +839,8 @@ def propagate_deriv(
 
 
 def makeN(s):
-    #(2011) Eq. 52
-    # 
+    # (2011) Eq. 52
+    #
     m = s.M
     N = np.zeros([s.nStack, 4, 4], dtype="complex128")
     #

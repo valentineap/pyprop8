@@ -17,12 +17,14 @@ then
 s1 @ s2 = Stack{ A @ u , B @ v, C @ w}
 """
 
+
 class ScaledMatrixStack:
     """
     A class to represent a collection (`stack`) of N x M matrices.
     An individual matrix A is stored in the form (s, D) such that A = exp(s).D
-    where s is a scalar and D is an N x M matrix.    
+    where s is a scalar and D is an N x M matrix.
     """
+
     def __init__(
         self,
         data=None,
@@ -35,16 +37,16 @@ class ScaledMatrixStack:
         dtypeScale="float64",
     ):
         """
-        Initialise a stack (collection) of exponentially scaled matrices: each matrix A 
+        Initialise a stack (collection) of exponentially scaled matrices: each matrix A
         is expressed as (s, D) where A=exp(s).D. Usage is either:
 
         scm = ScaledMatrixStack(data, scale, copy=False)
 
-        to populate the stack using pre-existing data and scale, or 
+        to populate the stack using pre-existing data and scale, or
 
         scm = ScaledMatrixStack(nStack, N, M, dtypeData="float64", dtypeScale="float64")
-        
-        to create an empty (zeros) stack of a given dimension and data type. 
+
+        to create an empty (zeros) stack of a given dimension and data type.
 
         Inputs:
         data - array, shape (nStack, N, M): a set of nStack (N x M) matrices, {D1, D2, ...}
@@ -112,13 +114,13 @@ class ScaledMatrixStack:
             # self.rescale()
 
     def copy(self, dest=None):
-        """Create a copy of a ScaledMatrixStack. 
+        """Create a copy of a ScaledMatrixStack.
         ```
         scm = ScaledMatrixStack(...)
         new = scm.copy()
         ```
         """
-        
+
         if dest is None:
             return ScaledMatrixStack(self.M, self.scale, copy=True)
         else:
@@ -143,7 +145,7 @@ class ScaledMatrixStack:
         scm = ScaledMatrixStack(...)
         a = scm[3:7] # <--- Select examples 3-7 from the stack; return as a new stack
         b = scm[3:7, 0:2, 0:2] # <--- Select examples 3-7 from the stack; then select
-                               #      only the upper 2x2 portion of each matrix and 
+                               #      only the upper 2x2 portion of each matrix and
                                #      return as new stack.
         ```
         """
