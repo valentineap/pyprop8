@@ -3,12 +3,12 @@
 Contributions to `pyprop8` are welcome! 
 
 ## Reporting bugs and suggesting improvements
-Bug reports should be submitted via the [issue tracker](/valentineap/pyprop8/issues). This can also be used to propose ideas for future development. 
+Bug reports should be submitted via the [issue tracker](https://github.com/valentineap/pyprop8/issues). This can also be used to propose ideas for future development. 
 
 ## Fixing bugs and making improvements
 You are welcome to implement bug fixes and other enhancements. The best way to do this is to:
 
-1. Create a fork of [the main repository](/valentineap/pyprop8) in your own Github account.
+1. Create a fork of [the main repository](https://github.com/valentineap/pyprop8) in your own Github account.
 2. Make and test your changes.
 3. Once you are satisfied, create a pull request to the main repository. Please make sure your pull request explains what your edits are designed to fix/add!
 4. Respond to any questions/comments raised during code review.
