@@ -22,6 +22,10 @@ def stf_trapezoidal(omega, trise, trupt):
 
 
 def stf_cosine(omega, thalf):
+    # This is the fourier transform of
+    # f(t, T) = 1/(2T) (1+ cos( pi t / T))     -T < t < T
+    #         = 0                              otherwise
+    # with T <--> `thalf`
     return (
         np.pi**2
         * np.sin(omega * thalf)
@@ -30,6 +34,10 @@ def stf_cosine(omega, thalf):
 
 
 def stf_boxcar(omega, thalf):
+    # This is the fourier transform of
+    # f(t, T) = 1/(2T)   -T < t < T
+    #         = 0         otherwise
+    # with T <--> `thalf`
     return np.sin(omega * thalf) / (omega * thalf)
 
 
