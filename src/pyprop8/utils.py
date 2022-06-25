@@ -32,7 +32,6 @@ def stf_cosine(omega, thalf):
         / (omega * thalf * (np.pi**2 - (omega * thalf) ** 2))
     )
 
-
 def stf_boxcar(omega, thalf):
     # This is the fourier transform of
     # f(t, T) = 1/(2T)   -T < t < T
@@ -40,6 +39,8 @@ def stf_boxcar(omega, thalf):
     # with T <--> `thalf`
     return np.sin(omega * thalf) / (omega * thalf)
 
+def stf_cosine_boxcar(omega, thalf, ratio=0.1):
+    return np.pi**2 * np.cos(thalf*ratio*omega)*np.sin(thalf*omega*(ratio-1))/((ratio-1)*thalf*omega*(np.pi-2*ratio*thalf*omega)*(np.pi+2*ratio*thalf*omega))
 
 def clp_filter(w, w0, w1):
     """Cosine low-pass filter"""
