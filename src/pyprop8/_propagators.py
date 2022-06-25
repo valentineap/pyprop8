@@ -166,6 +166,8 @@ def exphyp(x):
 
 
 def propagate_zerofreq(k, dz, sigma, mu, rho, m2=None, m4=None, m6=None, inplace=True):
+    # See Mathematica notebook for equations
+    # Propagator matrices evaluated at w=0
     nk = k.shape[0]
     c, s, scale = exphyp(dz * k)
     # Terms that don't change under h->-h
@@ -184,6 +186,7 @@ def propagate_zerofreq(k, dz, sigma, mu, rho, m2=None, m4=None, m6=None, inplace
     else:
         m2r = None
     if m4 is not None:
+        # exp( h A' ) (eq. 62 at zero freq)
         exphap = np.zeros([nk, 4, 4], dtype="complex128")
         exphap[:, 0, 0] = c
         exphap[:, 0, 1] = dz * s * rho * (sigma - mu) / (2 * sigma * mu)
@@ -229,6 +232,10 @@ def propagate_zerofreq(k, dz, sigma, mu, rho, m2=None, m4=None, m6=None, inplace
     else:
         m4r = None
     if m6 is not None:
+        # See Mathematica notebook. exp(h A' ) evaluated at zero frequency
+        # and then split into two parts: one containing cosh/sinh terms
+        # and the other without (because they need to be rescaled differently)
+        # Rescaling of some components then rolled into definition of Z/inv(Z)
         exphap = np.zeros([nk, 6, 6], dtype="complex128")
         exphap[:, 0, 0] = c**2
         exphap[:, 0, 1] = -c * s
@@ -271,7 +278,9 @@ def propagate_zerofreq(k, dz, sigma, mu, rho, m2=None, m4=None, m6=None, inplace
         M = scm.ScaledMatrixStack(exphap, 2 * scale.copy()) + scm.ScaledMatrixStack(
             exphap_noscale
         )
-
+        # These are not Z/inv(Z) as defined in (2011) paper -- 
+        # we have pulled some scale factors out of exp(h A') and into
+        # these matrices.
         Z = np.zeros([nk, 6, 6], dtype="complex128")
         Z[:, 0, 2] = -1 / (2 * k * mu * rho * sigma)
         Z[:, 1, 1] = 1
