@@ -124,3 +124,42 @@ def latlon2xy(lat, lon, centre_lat, centre_lon, radius=6371.0):
     x = radius * np.cos(np.deg2rad(centre_lat)) * dlon
     y = radius * dlat
     return x, y
+
+def earth_flattening_transformation(spherical_model_table, l, radius):
+    """
+    Apply the earth-flattening transformation (following Chapman & Orcutt, 
+    The computation of body wave synthetic seismograms in laterally 
+    homogeneous media, Rev. Geophys., 1985) to an earth model.
+
+    Note that the transformation is approximate, with behaviour governed by
+    the parameter l. A discussion of this can be found following eq.(70) in
+    the Chapman & Orcutt paper. 
+
+   
+    :param list spherical_model_table: The model as expressed in a spherical
+        geometry. The model table should be given in a manner similar to that 
+        expected by :py:class:`LayeredStructureModel` when `interface_depth_form=True`.
+        Provide a list of tuples `(depth, vp, vs, rho)` where ``depth`` is the 
+        depth (km) of the interface defining the top of the layer, and vp, vs and rho
+        are the corresponding material parameters.
+    :param float l: Parameter governing the detailed approximation used; see the 
+        Chapman & Orcutt paper for more details. "A common choice is l=3".
+    :param float radius: The radius (km) of the planet being modelled.
+    
+    :return: list, ``flattened_model_table``, in form suitable for passing to
+        :py:class:`LayeredStructureModel` with `interface_depth_form=True`.
+    """
+    flattened_model = []
+    for layer in spherical_model_table:
+        interface_depth, vp_sph, vs_sph, rho_sph = layer
+        if interface_depth>=radius: raise ValueError("Model layer depths inconsistent with radius of planet!")
+        r = (radius-interface_depth)
+        z = -radius*np.log(r/radius)
+        vp_flat = (radius/r)*vp_sph
+        vs_flat = (radius/r)*vs_sph
+        rho_flat = ((r/radius)**(l+2)) * rho_sph
+        flattened_model+=[(z, vp_flat, vs_flat, rho_flat)]
+    return flattened_model
+
+
+
