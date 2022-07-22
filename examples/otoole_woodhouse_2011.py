@@ -1,5 +1,5 @@
 import pyprop8 as pp
-from pyprop8.utils import rtf2xyz,make_moment_tensor,stf_trapezoidal,stf_cosine,latlon2xy
+from pyprop8.utils import rtf2xyz,make_moment_tensor,stf_trapezoidal,stf_cosine,latlon2xy,stf_boxcar,stf_cosine_boxcar
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -29,7 +29,7 @@ model_table_2 = pp.LayeredStructureModel([[ 1.50, 2.20, 1.00, 2.20],
 #stations = pp.RegularlyDistributedReceivers(30,200,18,90,90,1,depth=3)
 stations = pp.ListOfReceivers(xx = np.zeros(18),yy=np.linspace(30,200,18),depth=3)
 source =  pp.PointSource(0,0,34,rtf2xyz(make_moment_tensor(340,90,0,2.4E8,0,0)),np.zeros([3,1]), 0.)
-tt,seis = pp.compute_seismograms(model_table_1, source, stations, 181,.5,xyz=False,source_time_function=lambda w:stf_trapezoidal(w,3,6))
+tt,seis = pp.compute_seismograms(model_table_1, source, stations, 181,.5,xyz=False,source_time_function=lambda w:stf_cosine(w,4.5))
 
 fig = plt.figure(figsize=(6,10))
 ax = fig.add_subplot(311)
@@ -184,7 +184,7 @@ plt.show()
 
 stations = pp.ListOfReceivers(np.array([22.383514667]),np.array([36.493270697]),depth=3,geometry='spherical')
 source = pp.PointSource(21.79,36.24,30,rtf2xyz(make_moment_tensor(332,6,120,2.4E7,0,0)),np.zeros([3,1]), 0.)
-tt,seis = pp.compute_seismograms(model_table_1,source,stations,240,0.5,xyz=True,source_time_function=lambda w:stf_cosine(w,4.5)*(1-np.exp(-1j*w*5))/(5*1j*w))
+tt,seis = pp.compute_seismograms(model_table_1,source,stations,240,0.5,xyz=True,source_time_function=lambda w:stf_cosine_boxcar(w,4.5,ratio=0.33))
 fig = plt.figure()
 ax = fig.add_subplot(111)
 ax.plot(tt,seis[0,:])
