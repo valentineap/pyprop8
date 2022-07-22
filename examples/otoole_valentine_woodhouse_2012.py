@@ -4,7 +4,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 '''This example aims to reproduce the first couple of figures presented in
-O'Toole, Valentine & Woodhouse (2012, doi: 10.1111/j.1365-246X.2012.05608.x).'''
+O'Toole, Valentine & Woodhouse (2012, doi: 10.1111/j.1365-246X.2012.05608.x).
+
+As various details are not fully and unambiguously defined in the paper, there
+may be some minor differences between the figures there and those output by this
+code.
+'''
 
 # Table 1:
 model = pp.LayeredStructureModel(np.array([[ 0.10, 3.20, 2.00, 2.10],
@@ -22,6 +27,9 @@ event = pp.PointSource(0,0,35,rtf2xyz(np.array([[ 0.3406, 0.0005, 0.1610],
                                                 [ 0.0005, 0.7798, 0.1430],
                                                 [ 0.1610, 0.1430, 0.6349]])),np.array([[0.],[0.],[0.]]),0)
 drv = pp.DerivativeSwitches(moment_tensor=True,z=True,x=True,y=True,time=True)
+
+# Appears that the paper just uses the cosine low-pass filter
+# and not any further source time-function
 
 stf = lambda w: clp_filter(w,0.05*2*np.pi,0.2*2*np.pi)
 tt,seis,deriv = pp.compute_seismograms(model,event,stations,81,0.5,source_time_function = stf,derivatives=drv,pad_frac=0.5)
