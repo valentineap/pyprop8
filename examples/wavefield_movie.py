@@ -31,11 +31,11 @@ delta_t = 0.5
 time, seismograms = pp.compute_seismograms(model,source,receivers,nt,delta_t,source_time_function=stf)
 
 fig = plt.figure()
-ax1 = fig.add_axes((0.05,0.35,0.6,0.6),projection='3d')
-ax2 = fig.add_axes((0.7,0.6,0.1,0.1))
-ax3 = fig.add_axes((0.7,0.05,0.25,0.25))
+ax1 = fig.add_axes((0.05,0.05,0.9,0.9),projection='3d')
+ax2 = fig.add_axes((0.05,0.05,0.1,0.1))
+#ax3 = fig.add_axes((0.7,0.05,0.25,0.25))
 
-ngrid=50
+ngrid=200
 grid_x,grid_y=np.meshgrid(np.linspace(-50,50,ngrid),np.linspace(-50,50,ngrid))
 cmax=abs(seismograms).max()*1.05
 scale_horiz=0.1
@@ -76,8 +76,8 @@ def animate(i):
     ax1.set_ylim(-50,50)
     ax1.set_xlabel("West-East")
     ax1.set_ylabel("South-North")
-    ax1.set_zlim(-scale_vert*cmax,scale_vert*cmax)
-    #ax1.set_axis_off()
+    ax1.set_zlim(-2*scale_vert*cmax,scale_vert*cmax)
+    ax1.set_axis_off()
     ax2.clear()
     ax2.set_xlim(-2,2)
     ax2.set_ylim(-2,2)
@@ -89,16 +89,16 @@ def animate(i):
     ax2.text(1.2,0,"E",ha='left',va='center')
     ax2.set_axis_off()
     view = ax2.arrow(0,0,-np.cos(np.deg2rad(azim)),-np.sin(np.deg2rad(azim)))
-    ax3.clear()
-    ax3.set_xlim(-50,50)
-    ax3.set_ylim(-50,50)
-    ax3.set_aspect(1.0)
+    # ax3.clear()
+    # ax3.set_xlim(-50,50)
+    # ax3.set_ylim(-50,50)
+    # ax3.set_aspect(1.0)
     if i>=nt:
         los_vector = np.array([np.cos(np.deg2rad(azim))*np.sin(np.deg2rad(90-view_elev)),
                        np.sin(np.deg2rad(azim))*np.sin(np.deg2rad(90-view_elev)),
                        np.cos(np.deg2rad(90-view_elev))])
         insar = seismograms[:,:,:,-1].dot(los_vector)
-        interferogram = ax3.contourf(xx,yy,insar%28,cmap=plt.cm.jet)
+        interferogram = ax1.contourf(xx,yy,insar%28,280,offset=-2*scale_vert*cmax,cmap=plt.cm.jet)
     return surf, view, 
 anim = FuncAnimation(fig,animate,interval=10,blit=True,frames=tqdm.tqdm(np.arange(0,nt+360)))
 anim.save("test.gif",dpi=300,writer=PillowWriter(fps=25))
