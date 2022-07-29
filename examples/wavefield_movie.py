@@ -6,7 +6,31 @@ from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.animation import FuncAnimation, PillowWriter
 from matplotlib.tri import Triangulation, CubicTriInterpolator
 from matplotlib.colors import LightSource
+from mpl_toolkits.mplot3d import art3d as art3d
 import tqdm 
+
+
+lo_res = True
+if lo_res:
+    nt=30
+    delta_t = 2
+    ngrid=10
+    ncontour=28
+    dpi=100
+    framestep=10
+    nr = 5
+    nphi=16
+else:
+    nt = 120
+    delta_t = 0.5
+    ngrid=200
+    dpi=300
+    ncontour=280
+    framestep=1
+    nr=50
+    nphi=72
+
+
 model = pp.LayeredStructureModel([[ 3.00, 1.80, 0.00, 1.02],
                                   [ 2.00, 4.50, 2.40, 2.57],
                                   [ 5.00, 5.80, 3.30, 2.63],
@@ -22,20 +46,19 @@ moment_tensor = rtf2xyz(make_moment_tensor(strike, dip, rake, M0, 0, 0))
 source = pp.PointSource(0,0,depth,moment_tensor,np.zeros([3,1]),0)
 stf = lambda w: stf_trapezoidal(w, 3, 6)
 
-receivers = pp.RegularlyDistributedReceivers(1,50,50,0,360,72,depth=3)
+receivers = pp.RegularlyDistributedReceivers(1,50,nr,0,360,nphi,depth=3)
 xx,yy = receivers.as_xy()
 tri = Triangulation(xx.flatten(),yy.flatten())
 
-nt = 120
-delta_t = 0.5
+
 time, seismograms = pp.compute_seismograms(model,source,receivers,nt,delta_t,source_time_function=stf)
 
-fig = plt.figure()
+fig = plt.figure(figsize=(8,8))
 ax1 = fig.add_axes((0.05,0.05,0.9,0.9),projection='3d')
-ax2 = fig.add_axes((0.05,0.05,0.1,0.1))
-#ax3 = fig.add_axes((0.7,0.05,0.25,0.25))
+ax2 = fig.add_axes((0.85,0.05,0.1,0.1),projection='3d')
+ax3 = fig.add_axes((0.05,0.05,0.1,0.1))
 
-ngrid=200
+
 grid_x,grid_y=np.meshgrid(np.linspace(-50,50,ngrid),np.linspace(-50,50,ngrid))
 cmax=abs(seismograms).max()*1.05
 scale_horiz=0.1
@@ -83,22 +106,33 @@ def animate(i):
     ax2.set_ylim(-2,2)
     ax2.set_aspect(1.0)
     ax2.add_patch(plt.Circle((0,0),1,color='lightgrey'))
-    ax2.text(0,1.2,"N",ha='center',va='bottom')
-    ax2.text(0,-1.2,"S",ha='center',va='top')
-    ax2.text(-1.2,0,"W",ha='right',va='center')
-    ax2.text(1.2,0,"E",ha='left',va='center')
+    # ax2.text(0,1.2,"N",ha='center',va='bottom')
+    # ax2.text(0,-1.2,"S",ha='center',va='top')
+    # ax2.text(-1.2,0,"W",ha='right',va='center')
+    # ax2.text(1.2,0,"E",ha='left',va='center')
     ax2.set_axis_off()
     view = ax2.arrow(0,0,-np.cos(np.deg2rad(azim)),-np.sin(np.deg2rad(azim)))
-    # ax3.clear()
-    # ax3.set_xlim(-50,50)
-    # ax3.set_ylim(-50,50)
-    # ax3.set_aspect(1.0)
+    ax3.clear()
+    ax3.set_xlim(-2,2)
+    ax3.set_ylim(-2,2)
+    ax3.set_aspect(1.0)
+    ax3.add_patch(plt.Circle((0,0),1,color='lightgrey'))
+    ax3.set_axis_off()
+    if i<nt:
+        clock = ax3.arrow(0,0,np.sin((i*delta_t)*np.pi/30),np.cos((i*delta_t)*np.pi/30))
+        clock2 = ax3.arrow(0,0,0.6*np.sin((i*delta_t)*np.pi/1800),0.6*np.cos((i*delta_t)*np.pi/1800))
+        ax3.text(0,-1.2,"%.1f s"%(i*delta_t),ha='center',va='top')
+    else:  
+        clock = ax3.arrow(0,0,np.sin((nt*delta_t)*np.pi/30),np.cos((nt*delta_t)*np.pi/30))
+        clock2 = ax3.arrow(0,0,0.6*np.sin((nt*delta_t)*np.pi/1800),0.6*np.cos((i*delta_t)*np.pi/1800))
+        ax3.text(0,-1.2,"%.1f s"%(nt*delta_t),ha='center',va='top')
     if i>=nt:
         los_vector = np.array([np.cos(np.deg2rad(azim))*np.sin(np.deg2rad(90-view_elev)),
                        np.sin(np.deg2rad(azim))*np.sin(np.deg2rad(90-view_elev)),
                        np.cos(np.deg2rad(90-view_elev))])
         insar = seismograms[:,:,:,-1].dot(los_vector)
-        interferogram = ax1.contourf(xx,yy,insar%28,280,offset=-2*scale_vert*cmax,cmap=plt.cm.jet)
-    return surf, view, 
-anim = FuncAnimation(fig,animate,interval=10,blit=True,frames=tqdm.tqdm(np.arange(0,nt+360)))
-anim.save("test.gif",dpi=300,writer=PillowWriter(fps=25))
+        interferogram = ax1.contourf(xx,yy,insar%28,ncontour,offset=-2*scale_vert*cmax,cmap=plt.cm.jet)
+    return surf, view, clock
+    #return  view, clock
+anim = FuncAnimation(fig,animate,interval=10,blit=True,frames=tqdm.tqdm(np.arange(0,nt+360,framestep)))
+anim.save("test.gif",dpi=dpi,writer=PillowWriter(fps=25))
