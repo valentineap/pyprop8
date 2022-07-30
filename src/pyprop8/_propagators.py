@@ -137,7 +137,6 @@ def sourceVector_ddep(MT, F, omega, k, sigma, mu, rho):
             * (sgn * MT[2, 0] - 1j * MT[1, 2])
             - 1j * k**2 * mu * (2 * mu - sigma) * MT[2, 1]
         ) / (2 * mu * sigma)
-        # s[:,3,2+sgn] = (k**2 * lam*(-sgn*MT[2,0]+1j*MT[2,1])+(sgn*MT[0,2]-1j*MT[1,2])*(k**2 * (lam*mu - (gamma+mu)*sigma+rho*sigma*omega**2))/mu)/(2*sigma)
         s[:, 1, 2 + 2 * sgn] = k * (MT[0, 0] - MT[1, 1]) / (4 * mu) - sgn * 1j * k * (
             MT[0, 1] + MT[1, 0]
         ) / (4 * mu)
@@ -174,7 +173,8 @@ def exphyp(x):
 
 
 def propagate_zerofreq(k, dz, sigma, mu, rho, m2=None, m4=None, m6=None, inplace=True):
-    # See Mathematica notebook for equations
+    # See Mathematica notebook (`notes/otoole_woodhouse_2011.nb`) for explanation/derivation
+    # of equations implemented here.
     # Propagator matrices evaluated at w=0
     """Perform propagation through a layer of thickness dz and physical
     properties (sigma, mu, rho) for a stack of minor vectors corresponding to
@@ -200,7 +200,7 @@ def propagate_zerofreq(k, dz, sigma, mu, rho, m2=None, m4=None, m6=None, inplace
     else:
         m2r = None
     if m4 is not None:
-        # exp( h A' ) (eq. 62 at zero freq)
+        # exp( h A' ) (eq. 62 at zero freq, see `notes/otoole_woodhouse_2011.nb`)
         exphap = np.zeros([nk, 4, 4], dtype="complex128")
         exphap[:, 0, 0] = c
         exphap[:, 0, 1] = dz * s * rho * (sigma - mu) / (2 * sigma * mu)
@@ -241,6 +241,7 @@ def propagate_zerofreq(k, dz, sigma, mu, rho, m2=None, m4=None, m6=None, inplace
             out = m4
         else:
             out = None
+        # do the propagation
         m4r = scm.ScaledMatrixStack(Z).matmul(
             M.matmul(scm.ScaledMatrixStack(iZ).matmul(m4, out=out), out=out), out=out
         )
@@ -248,9 +249,10 @@ def propagate_zerofreq(k, dz, sigma, mu, rho, m2=None, m4=None, m6=None, inplace
     else:
         m4r = None
     if m6 is not None:
-        # See Mathematica notebook. exp(h A' ) evaluated at zero frequency
-        # and then split into two parts: one containing cosh/sinh terms
-        # and the other without (because they need to be rescaled differently)
+        # See Mathematica notebook (`notes/otoole_woodhouse_2011.nb`). 
+        # exp(h A' ) evaluated at zero frequency and then split into two parts: 
+        # one containing cosh/sinh terms and the other without (because they 
+        # need to be rescaled differently).
         # Rescaling of some components then rolled into definition of Z/inv(Z)
         exphap = np.zeros([nk, 6, 6], dtype="complex128")
         exphap[:, 0, 0] = c**2
@@ -327,6 +329,7 @@ def propagate_zerofreq(k, dz, sigma, mu, rho, m2=None, m4=None, m6=None, inplace
             out = m6
         else:
             out = None
+        # Do the
         m6r = scm.ScaledMatrixStack(Z).matmul(
             M.matmul(scm.ScaledMatrixStack(iZ).matmul(m6, out=out), out=out), out=out
         )
@@ -504,11 +507,12 @@ def propagate(omega, k, dz, sigma, mu, rho, m2=None, m4=None, m6=None, inplace=T
         return propagate_zerofreq(k, dz, sigma, mu, rho, m2, m4, m6, inplace)
     nk = k.shape[0]
     if m4 is not None or m6 is not None:
-        zsig = np.lib.scimath.sqrt(k**2 - rho * omega**2 / sigma)
+        zsig = np.lib.scimath.sqrt(k**2 - rho * omega**2 / sigma) #(2011) Eq.58
         csig, ssig, scalesig = exphyp(dz * zsig)
-    zmu = np.lib.scimath.sqrt(k**2 - rho * omega**2 / mu)
+    zmu = np.lib.scimath.sqrt(k**2 - rho * omega**2 / mu) #(2011) Eq.59
     cmu, smu, scalemu = exphyp(dz * zmu)
     if m2 is not None:
+        # exp(h A) with A as in (2011) eq. 15
         M = np.zeros((nk, 2, 2), dtype="complex128")
         M[:, 0, 0] = cmu
         M[:, 0, 1] = smu / (mu * zmu)
@@ -523,6 +527,7 @@ def propagate(omega, k, dz, sigma, mu, rho, m2=None, m4=None, m6=None, inplace=T
     else:
         m2r = None
     if m4 is not None:
+        # Exp(h A'); split into terms involving zeta_p and terms involving zeta_s (see `notes/otoole_woodhouse_2011.nb`)
         exphap_s = np.zeros([nk, 4, 4], dtype="complex128")
         exphap_s[:, 0, 0] = csig
         exphap_s[:, 0, 1] = csig * k / omega**2
