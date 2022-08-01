@@ -6,6 +6,8 @@ This package provides a lightweight Python implementation of the seismogram calc
 
 Full documentation is [available here](https://pyprop8.readthedocs.io/), and you can try the package out [using Binder](https://mybinder.org/v2/gh/valentineap/pyprop8/HEAD?labpath=examples%2Fdemo.ipynb).
 
+A list of projects that have made use of `pyprop8` can be found [here](USERS.md); please feel free to [add your own](CONTRIBUTING.md).
+
 ## Installation
 
 The easiest way to get this package is through `pip`, e.g.
