@@ -12,6 +12,6 @@ This directory contains various notebooks and scripts that demonstrate some of t
 
 ## See Also
 
-- The [`tests`](src/pyprop8/tests.py) module
+- The [`tests`](/src/pyprop8/tests.py) module.
 
-- The [list of projects](USERS.md) that have made use of `pyprop8` 
+- The [list of projects](/USERS.md) that have made use of `pyprop8`.
