@@ -1,6 +1,6 @@
 # Users
 
-This file contains a list of [repositories](#repositories) and [publications](#publications) that use `pyprop8`. Please feel free to add your own work to the list.
+This file contains a list of [repositories](#repositories) and [publications](#publications) that make substantial use of `pyprop8`. Please feel free to update this list by adding your own work.
 
 ## Repositories
 
