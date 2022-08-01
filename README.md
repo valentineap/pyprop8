@@ -4,7 +4,7 @@
 
 This package provides a lightweight Python implementation of the seismogram calculation algorithm set out in [O'Toole & Woodhouse (2011)](https://doi.org/10.1111/j.1365-246X.2011.05210.x), together with the source derivatives set out in [O'Toole, Valentine & Woodhouse (2012)](https://doi.org/10.1111/j.1365-246X.2012.05608.x). It is intended to provide a lightweight, easy-to-install seismological forward model suitable for use in teaching and research (in particular, to provide a computationally-cheap yet physically-realistic forward problem for use in the development and testing of inversion algorithms).
 
-Full documentation is [available here](https://pyprop8.readthedocs.io/).
+Full documentation is [available here](https://pyprop8.readthedocs.io/), and you can try the package out [using Binder](https://mybinder.org/v2/gh/valentineap/pyprop8/HEAD?labpath=examples%2Fdemo.ipynb).
 
 ## Installation
 
