@@ -10,7 +10,7 @@ This file contains a list of [repositories](#repositories) and [publications](#p
 
 - Sambridge, Jackson & Valentine (2022). Geophysical Inversion and Optimal Transport, *Geophysical Journal International*, doi:[10.1093/gji/ggac151](https://doi.org/10.1093/gji/ggac151)
 
-## Earlier studies
+### Earlier studies
 
 In addition, the following papers rely on the seismogram synthesis approach described in O'Toole & Woodhouse (2011) and O'Toole et al. (2012), but **not** the `pyprop8` implementation:
 
