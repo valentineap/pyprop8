@@ -2,12 +2,21 @@ import numpy as np
 
 
 def stf_trapezoidal(omega, trise, trupt):
-    """Trapezoidal source time function. This routine is a copy of one
-    in TBO'T's Matlab code, which is itself apparently derived from AXITRA.
-    The spectrum coded here appears to be the Fourier Transform of the
+    """
+    Trapezoidal source time function, in frequency domain. 
+    This routine is a copy of one in TBO'T's Matlab code, which is itself 
+    apparently derived from AXITRA.
+    
+    The spectrum coded here is the Fourier Transform of the
     convolution of two unit-area boxcars, one of which is non-zero in the
     range [0,trise], and the other of which is non-zero in the range
     [-trupt/2, trupt/2].
+
+    :param complex omega: Frequency at which evaluation is required (rad/s)
+    :param float trise: Rise time (s)
+    :param float trupt: Total duration of rupture (s)
+
+    :returns: Amplitude of source time function
     """
     uu = np.ones(omega.shape, dtype="complex128")
     uxx = np.ones_like(uu)
@@ -22,6 +31,19 @@ def stf_trapezoidal(omega, trise, trupt):
 
 
 def stf_cosine(omega, thalf):
+    """
+    Cosine source time function, in frequency domain.
+    
+    This function implements the Fourier transform of
+    f(t, T) = 1/(2T) (1+ cos( pi t / T))     -T < t < T
+            = 0                              otherwise
+    with T <--> ``thalf``
+
+    :param complex omega: Frequency at which evaluation is required (rad/s)
+    :param float thalf: Half-width of source (s)
+
+    :returns: Amplitude of source time function
+    """
     # This is the fourier transform of
     # f(t, T) = 1/(2T) (1+ cos( pi t / T))     -T < t < T
     #         = 0                              otherwise
@@ -33,6 +55,19 @@ def stf_cosine(omega, thalf):
     )
 
 def stf_boxcar(omega, thalf):
+    """
+    Boxcar source time function, in frequency domain.
+
+    This function implements the Fourier transform of 
+    f(t, T) = 1/(2T)   -T < t < T
+            = 0         otherwise
+    with T <--> ``thalf``
+
+    :param complex omega: Frequency at which evaluation is required (rad/s)
+    :param float thalf: Half-width of boxcar (s)
+
+    :returns: Amplitude of source time function
+    """ 
     # This is the fourier transform of
     # f(t, T) = 1/(2T)   -T < t < T
     #         = 0         otherwise
@@ -43,7 +78,16 @@ def stf_cosine_boxcar(omega, thalf, ratio=0.1):
     return np.pi**2 * np.cos(thalf*ratio*omega)*np.sin(thalf*omega*(ratio-1))/((ratio-1)*thalf*omega*(np.pi-2*ratio*thalf*omega)*(np.pi+2*ratio*thalf*omega))
 
 def clp_filter(w, w0, w1):
-    """Cosine low-pass filter"""
+    """
+    Cosine low-pass filter.
+    
+    :param complex w: Frequency a t which evaluation is required (rad/s)
+    :param float w0: Corner frequency for start of taper; at frequencies below this the filter has no impact.
+    :param float w1: Corner frequency for end of taper; frequencies above this are stopped.
+
+    :returns: Amplitude of the filter
+
+    """
     if w1 <= w0:
         raise ValueError(
             "clp_filter upper corner frequency must be greater than lower corner!"
@@ -56,8 +100,35 @@ def clp_filter(w, w0, w1):
         return 0
 
 
-def make_moment_tensor(strike, dip, rake, M0, eta, xtr):
-    """Construct moment tensor from strike/dip/rake"""
+def make_moment_tensor(strike, dip, rake, M0, eta=0, xtr=0):
+    """
+    Construct moment tensor from strike/dip/rake. Copied from F77 routine `makemom`
+    of unknown origin. (J.H. Woodhouse?)
+
+    :param float strike: strike azimuth (clockwise from N).
+            Convention is that the fault dips
+            to the right when looking along the strike azimuth.
+    :param float dip: fault dip
+    :param float rake: 'rake' angle
+            Convention is that:
+            rlam=  0, del=90  --> left lateral strike-slip
+            rlam= 90, del=45  --> thrust fault
+            rlam=-90, del=45  --> normal fault
+    :param float M0: Scalar moment (i.e. the average of
+            the largest eigenvalue and the negative of the smallest
+            eigenvalue of the moment tensor).
+    :param float eta: ratio of the intermediate eigenvalue to the
+            scalar moment. For a double couple, eta=0.
+    :param float xtr: ratio of the trace of the moment tensor to the
+            scalar moment. If there is no volumetric component, xtr=0.
+
+     Thus the three eigenvalues, in increasing order (P,N,T) are
+       evp=scmom*(-1.-.5*eta+.5*xtr)
+       evn=scmom*(       eta       )
+       evt=scmom*( 1.-.5*eta+.5*xtr)
+
+    :returns: 3x3 array, moment tensor in spherical polar coordinates (GCMT convention)
+    """
     strike_r = np.deg2rad(strike)
     dip_r = np.deg2rad(dip)
     rake_r = np.deg2rad(rake)
@@ -118,7 +189,15 @@ def rtf2xyz(M):
 
 
 def latlon2xy(lat, lon, centre_lat, centre_lon, radius=6371.0):
-    """Convert latitude/longitude to a local Cartesian coordinate system assuming spherical Earth"""
+    """
+    Convert latitude/longitude to a local Cartesian coordinate system assuming spherical Earth
+    :param float lat:
+    :param float lon: Coordinates of point of interest
+    :param float centre_lat:
+    :param float centre_lon: Coordinates of origin of Cartesian system
+    :param float radius: Radius of spherical planet
+    :returns: (x,y) Cartesian coordinates
+    """
     dlat = np.deg2rad(lat - centre_lat)
     dlon = np.deg2rad(lon - centre_lon)
     x = radius * np.cos(np.deg2rad(centre_lat)) * dlon
