@@ -9,49 +9,62 @@ from matplotlib.colors import LightSource
 from mpl_toolkits.mplot3d import art3d as art3d
 import tqdm 
 
+# This script generates an animated gif showing ground motion and
+# line-of-sight static displacement (~ InSAR) for an event
 
-lo_res = False
+lo_res = False # Set to True to generate a quick-and-dirty plot for checking layout etc
 if lo_res:
     nt=60
     delta_t = 1
-    ngrid=20
+    ngrid=40
     ncontour=28
     dpi=100
     framestep=5
     nr = 10
     nphi=36
 else:
-    nt = 120
-    delta_t = 0.5
-    ngrid=200
-    dpi=300
-    ncontour=280
-    framestep=1
-    nr=50
-    nphi=72
+    nt = 240      # Number of time-steps in seismogram calculation
+    delta_t = 0.25 # Time interval in seismogram calculation
+    ngrid=200     # Number of grid points in Cartesian grid for interpolation
+    dpi=300       # resolution of output
+    ncontour=280  # Number of contours in static displacement plot
+    framestep=1   # Stride for animation
+    nr=50         # Number of radii for seismogram calculation
+    nphi=72       # Number of azimuths for seismogram calculation
 box_size = 50
 
-model = pp.LayeredStructureModel([[ 3.00, 1.80, 0.00, 1.02],
-                                  [ 2.00, 4.50, 2.40, 2.57],
-                                  [ 5.00, 5.80, 3.30, 2.63],
-                                  [20.00, 6.50, 3.65, 2.85],
-                                  [np.inf,8.00, 4.56, 3.34]])
+# Earth model to use
 
-strike = 180
-dip = 0
-rake = 0
-M0=1E7
-depth = 5
-moment_tensor = rtf2xyz(make_moment_tensor(strike, dip, rake, M0, 0, 0))
+# These values are Based on Crust1.0 for Idaho
+model = pp.LayeredStructureModel([( 16.5, 6.1, 3.6 , 2.7),
+                                 ( 14.6, 6.3, 3.7, 2.8),
+                                 (  6.4, 7.0, 4.0, 3.0),
+                                 (np.inf,7.9, 4.4, 3.3)])
+
+# Earthquake parameters
+# strike = 180
+# dip = 0
+# rake = 0
+# M0=1E7
+# GCMT catalog values
+depth = 13.8
+moment_tensor_rtf = 1e6*np.array([[-2.320, 1.120, 1.150],
+                                  [ 1.120, 1.780,-5.970],
+                                  [ 1.150,-5.970, 0.535]])
+
+moment_tensor = rtf2xyz(moment_tensor_rtf)  #make_moment_tensor(strike, dip, rake, M0, 0, 0))
 source = pp.PointSource(0,0,depth,moment_tensor,np.zeros([3,1]),0)
-stf = lambda w: stf_trapezoidal(w, 3, 6)
+stf = lambda w: stf_trapezoidal(w, 4.2, 8.4)
 
-receivers = pp.RegularlyDistributedReceivers(1,50,nr,0,360,nphi,depth=3)
+receivers = pp.RegularlyDistributedReceivers(1,50,nr,0,360,nphi,depth=0)
 xx,yy = receivers.as_xy()
 tri = Triangulation(xx.flatten(),yy.flatten())
 
+# To ensure a high-quality resolution of the surface, increase the
+# spatial (k-space) sampling
+stencil_args = {'kmin':0,'kmax':5,'nk':12000}
 
-time, seismograms = pp.compute_seismograms(model,source,receivers,nt,delta_t,source_time_function=stf,stencil_kwargs={'kmin':0,'kmax':5,'nk':12000})
+time, seismograms = pp.compute_seismograms(model,source,receivers,nt,delta_t,source_time_function=stf,stencil_kwargs=stencil_args)
 
 fig = plt.figure(figsize=(8,8))
 ax1 = fig.add_axes((0.0,0.0,1,1),projection='3d')
@@ -73,7 +86,7 @@ cmax = max_norm*1.05
 #scale_vert = 0.1
 view_azim_init = -45
 view_elev = 30
-nstatic = 120
+nstatic = nt
 
 def animate(i):
     # Plot the ground surface (with displacement)
@@ -82,7 +95,7 @@ def animate(i):
         azim = view_azim_init+i-nstatic
     ax1.azim = azim
     ax1.elev = view_elev
-    ls = LightSource(90, 30)
+    ls = LightSource(90-ax1.azim+view_azim_init, 30)
     if i<nt:
         fx = CubicTriInterpolator(tri,seismograms[:,:,0,i].flatten())
         fy = CubicTriInterpolator(tri,seismograms[:,:,1,i].flatten())
@@ -96,11 +109,11 @@ def animate(i):
     zz = fz(grid_x,grid_y)
     
 
-    rgb = ls.shade(zz, cmap=plt.cm.coolwarm_r,vmin=-cmax,vmax=cmax)
+    rgb = ls.shade(zz, cmap=plt.cm.coolwarm_r,vmin=-cmax,vmax=cmax,blend_mode='overlay')
     surf = ax1.plot_surface(grid_x+scale_horiz*fx(grid_x,grid_y),
                            grid_y+scale_horiz*fy(grid_x,grid_y),
                            scale_vert*zz,
-                           facecolors=rgb,antialiased=False,
+                           facecolors=rgb,antialiased=True,
                            rcount=ngrid,ccount=ngrid)
     ax1.set_xlim(-50,50)
     ax1.set_ylim(-50,50)
