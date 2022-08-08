@@ -142,9 +142,9 @@ class LayeredStructureModel:
             the infinite halfspace).
         :ivar numpy.ndarray or None dz: Array of layer thicknesses, from top to
             bottom.
-        :ivar numpy.ndarray or None sigma: Array of S-wave moduli in each layer,
+        :ivar numpy.ndarray or None sigma: Array of P-wave moduli in each layer,
             from top to bottom.
-        :ivar numpy.ndarray or None mu: Array of P-wave moduli in each layer,
+        :ivar numpy.ndarray or None mu: Array of S-wave moduli in each layer,
             from top to bottom.
         :ivar numpy.ndarray or None rho: Array of densities in each layer, from
             top to bottom.
