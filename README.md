@@ -22,7 +22,9 @@ The core functions of this package depend only on:
 - [numpy](https://numpy.org)
 - [scipy](https://scipy.org)
 
-`pyprop8` will also use [`tqdm`](https://github.com/tqdm/tqdm) if it is available. The package also includes some sample visualisation functions which are dependent on [`matplotlib`](https://matplotlib.org').
+`pyprop8` will also use [`tqdm`](https://github.com/tqdm/tqdm) if it is available. 
+
+Some of the examples found in `examples/` may have additional dependencies and requirements, including [Jupyter](https://jupyter.org) and [`matplotlib`](https://matplotlib.org').
 
 ## Citing this package
 
