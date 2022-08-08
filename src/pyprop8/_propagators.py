@@ -5,6 +5,15 @@ from pyprop8 import _scaledmatrix as scm
 ### Boundary condition vectors ###
 ##################################
 def freeSurfaceBoundary(nk, sh=False):
+    """
+    Implement the boundary condition at a free surface.
+
+    :param int nk: Number of k-space samples
+    :param bool sh: True -> SH system; False -> P-SV system
+
+    :returns: An instance of :py:class:~pyprop8._scaledmatrix.ScaledMatrixStack: 
+        containing the boundary vector at each k value.
+    """
     # (2011) Eq. 85 (with P-SV system in minor vector form)
     if sh:
         m = np.zeros([nk, 2, 1], dtype="complex128")
@@ -15,6 +24,19 @@ def freeSurfaceBoundary(nk, sh=False):
 
 
 def oceanFloorBoundary(depth, omega, k, sigma, rho, sh=False):
+    """
+    Implement the boundary condition at the ocean floor
+
+    :param float depth: Water depth/ocean layer thickness
+    :param complex omega: Evaluation frequency
+    :param numpy.ndarray k: k-space wavenumber
+    :param float sigma: P-wave modulus
+    :param float rho: Density
+    :param bool sh: True -> SH system, False -> P-SV system
+
+    :returns: An instance of :py:class:~pyprop8._scaledmatrix.ScaledMatrixStack: 
+        containing the boundary vector at each k value.   
+    """
     # (2011) Eqs. 86 & 88 (P-SV in minor vector form)
     nk = k.shape[0]
     if sh:
@@ -31,6 +53,19 @@ def oceanFloorBoundary(depth, omega, k, sigma, rho, sh=False):
 
 
 def oceanFloorBoundary_deriv(depth, omega, k, sigma, rho, sh=False):
+    """
+    Implement the derivative of the ocean floor boundary vector wrt depth
+
+    :param float depth: Water depth/ocean layer thickness
+    :param complex omega: Evaluation frequency
+    :param numpy.ndarray k: k-space wavenumber
+    :param float sigma: P-wave modulus
+    :param float rho: Density
+    :param bool sh: True -> SH system, False -> P-SV system
+
+    :returns: An instance of :py:class:~pyprop8._scaledmatrix.ScaledMatrixStack: 
+        containing the derivative at each k value.
+    """
     # Derivative of (2011) Eqs. 86 & 88 wrt ocean depth (i.e. layer thickness)
     nk = k.shape[0]
     if sh:
@@ -46,6 +81,19 @@ def oceanFloorBoundary_deriv(depth, omega, k, sigma, rho, sh=False):
 
 
 def underlyingHalfspaceBoundary(omega, k, sigma, mu, rho, sh=False):
+    """
+    Implement the boundary condition for the underlying halfspace
+
+    :param complex omega: Evaluation frequency
+    :param numpy.ndarray k: k-space wavenumber 
+    :param float sigma: P-wave modulus
+    :param float mu: S-wave modulus
+    :param float rho: Density
+    :param bool sh: True -> SH system, False -> P-SV system
+
+    :returns: An instance of :py:class:~pyprop8._scaledmatrix.ScaledMatrixStack: 
+        containing the boundary vector at each k value.   
+    """
     # (2011) Eqs. 89 & 90
     nk = k.shape[0]
 
@@ -72,7 +120,22 @@ def underlyingHalfspaceBoundary(omega, k, sigma, mu, rho, sh=False):
     return scm.ScaledMatrixStack(m)
 
 
-def sourceVector(MT, F, k, sigma, mu):
+def sourceVector(MT, F, k, sigma, mu):    
+    """
+    Implement the source discontinity vector
+
+    :param numpy.ndarray MT: array, shape(3,3) containing moment tensor in Cartesian system
+    :param numpy.ndarray F: array, shape(3,) containing force vector in Cartesian system
+    :param numpy.ndarray k: k-space wavenumber 
+    :param float sigma: P-wave modulus at source depth
+    :param float mu: S-wave modulus at source depth
+
+    :returns: (s_psv,s_sh) where
+        s_psv: An instance of :py:class:~pyprop8._scaledmatrix.ScaledMatrixStack: 
+               containing the P-SV discontinuity vector at each k value.   
+        s_sh: An instance of :py:class:~pyprop8._scaledmatrix.ScaledMatrixStack: 
+               containing the SH discontinuity vector at each k value. 
+    """
     # (2011) Eqs. 21 & 22.
     nk = k.shape[0]
     s = np.zeros([nk, 4, 5], dtype="complex128")  # P-SV system, eq.21
@@ -101,6 +164,21 @@ def sourceVector(MT, F, k, sigma, mu):
 
 
 def sourceVector_ddep(MT, F, omega, k, sigma, mu, rho):
+    """
+    Implement the derivative of the source discontinity vector wrt source depth
+
+    :param numpy.ndarray MT: array, shape(3,3) containing moment tensor in Cartesian system
+    :param numpy.ndarray F: array, shape(3,) containing force vector in Cartesian system
+    :param numpy.ndarray k: k-space wavenumber
+    :param float sigma: P-wave modulus at source depth
+    :param float mu: S-wave modulus at source depth
+
+    :returns: (s_psv,s_sh) where
+        s_psv: An instance of :py:class:~pyprop8._scaledmatrix.ScaledMatrixStack: 
+               containing the derivative of the P-SV discontinuity vector at each k value.   
+        s_sh: An instance of :py:class:~pyprop8._scaledmatrix.ScaledMatrixStack: 
+               containing the derivative of the SH discontinuity vector at each k value. 
+    """
     # (2012) Eqs. A37 & A38
     # i.e. derivative of (2011) Eqs. 21 & 22 wrt source depth.
     lam = sigma - 2 * mu
@@ -137,7 +215,6 @@ def sourceVector_ddep(MT, F, omega, k, sigma, mu, rho):
             * (sgn * MT[2, 0] - 1j * MT[1, 2])
             - 1j * k**2 * mu * (2 * mu - sigma) * MT[2, 1]
         ) / (2 * mu * sigma)
-        # s[:,3,2+sgn] = (k**2 * lam*(-sgn*MT[2,0]+1j*MT[2,1])+(sgn*MT[0,2]-1j*MT[1,2])*(k**2 * (lam*mu - (gamma+mu)*sigma+rho*sigma*omega**2))/mu)/(2*sigma)
         s[:, 1, 2 + 2 * sgn] = k * (MT[0, 0] - MT[1, 1]) / (4 * mu) - sgn * 1j * k * (
             MT[0, 1] + MT[1, 0]
         ) / (4 * mu)
@@ -162,6 +239,9 @@ def sourceVector_ddep(MT, F, omega, k, sigma, mu, rho):
 
 
 def exphyp(x):
+    """
+    Compute exp(-x)*cosh(x), exp(-x)*sinh(x)
+    """
     a = np.real(x)
     b = np.imag(x)
     sgn = np.sign(a)
@@ -174,11 +254,22 @@ def exphyp(x):
 
 
 def propagate_zerofreq(k, dz, sigma, mu, rho, m2=None, m4=None, m6=None, inplace=True):
-    # See Mathematica notebook for equations
+    # See Mathematica notebook (`notes/otoole_woodhouse_2011.nb`) for explanation/derivation
+    # of equations implemented here.
     # Propagator matrices evaluated at w=0
     """Perform propagation through a layer of thickness dz and physical
     properties (sigma, mu, rho) for a stack of minor vectors corresponding to
     spatial wavenumbers given in array k. Special case for zero (temporal) frequency.
+
+    :param numpy.ndarray k: Spatial wavenumber
+    :param float dz: Layer thickness
+    :param float sigma: P-wave modulus in layer
+    :param float mu: S-wave modulus in layer
+    :param float rho: Density in layer
+    :param pyprop8._scaledmatrix.ScaledMatrixStack m2: 2D system for propagation
+    :param pyprop8._scaledmatrix.ScaledMatrixStack m2: 4D system for propagation
+    :param pyprop8._scaledmatrix.ScaledMatrixStack m2: 6D system for propagation
+    :param bool inplace: Overwrite input system with result?
     """
     nk = k.shape[0]
     c, s, scale = exphyp(dz * k)
@@ -200,7 +291,7 @@ def propagate_zerofreq(k, dz, sigma, mu, rho, m2=None, m4=None, m6=None, inplace
     else:
         m2r = None
     if m4 is not None:
-        # exp( h A' ) (eq. 62 at zero freq)
+        # exp( h A' ) (eq. 62 at zero freq, see `notes/otoole_woodhouse_2011.nb`)
         exphap = np.zeros([nk, 4, 4], dtype="complex128")
         exphap[:, 0, 0] = c
         exphap[:, 0, 1] = dz * s * rho * (sigma - mu) / (2 * sigma * mu)
@@ -241,6 +332,7 @@ def propagate_zerofreq(k, dz, sigma, mu, rho, m2=None, m4=None, m6=None, inplace
             out = m4
         else:
             out = None
+        # do the propagation
         m4r = scm.ScaledMatrixStack(Z).matmul(
             M.matmul(scm.ScaledMatrixStack(iZ).matmul(m4, out=out), out=out), out=out
         )
@@ -248,9 +340,10 @@ def propagate_zerofreq(k, dz, sigma, mu, rho, m2=None, m4=None, m6=None, inplace
     else:
         m4r = None
     if m6 is not None:
-        # See Mathematica notebook. exp(h A' ) evaluated at zero frequency
-        # and then split into two parts: one containing cosh/sinh terms
-        # and the other without (because they need to be rescaled differently)
+        # See Mathematica notebook (`notes/otoole_woodhouse_2011.nb`). 
+        # exp(h A' ) evaluated at zero frequency and then split into two parts: 
+        # one containing cosh/sinh terms and the other without (because they 
+        # need to be rescaled differently).
         # Rescaling of some components then rolled into definition of Z/inv(Z)
         exphap = np.zeros([nk, 6, 6], dtype="complex128")
         exphap[:, 0, 0] = c**2
@@ -327,6 +420,7 @@ def propagate_zerofreq(k, dz, sigma, mu, rho, m2=None, m4=None, m6=None, inplace
             out = m6
         else:
             out = None
+        # Do the
         m6r = scm.ScaledMatrixStack(Z).matmul(
             M.matmul(scm.ScaledMatrixStack(iZ).matmul(m6, out=out), out=out), out=out
         )
@@ -338,6 +432,21 @@ def propagate_zerofreq(k, dz, sigma, mu, rho, m2=None, m4=None, m6=None, inplace
 def propagate_zerofreq_deriv(
     k, dz, sigma, mu, rho, m2=None, m4=None, m6=None, inplace=True
 ):
+    """Compute derivative of propagation through a layer of thickness dz and physical
+    properties (sigma, mu, rho) wrt layer thickeness for a stack of minor vectors corresponding to
+    spatial wavenumbers given in array k.  Special case for zero (temporal) frequency.
+
+    :param numpy.ndarray k: Spatial wavenumber
+    :param float dz: Layer thickness
+    :param float sigma: P-wave modulus in layer
+    :param float mu: S-wave modulus in layer
+    :param float rho: Density in layer
+    :param pyprop8._scaledmatrix.ScaledMatrixStack m2: 2D system for propagation
+    :param pyprop8._scaledmatrix.ScaledMatrixStack m2: 4D system for propagation
+    :param pyprop8._scaledmatrix.ScaledMatrixStack m2: 6D system for propagation
+    :param bool inplace: Overwrite input system with result?
+    """
+
     nk = k.shape[0]
     c, s, scale = exphyp(dz * k)
     # Terms that don't change under h->-h
@@ -493,6 +602,21 @@ def propagate_zerofreq_deriv(
 
 
 def propagate(omega, k, dz, sigma, mu, rho, m2=None, m4=None, m6=None, inplace=True):
+    """Perform propagation through a layer of thickness dz and physical
+    properties (sigma, mu, rho) for a stack of minor vectors corresponding to
+    spatial wavenumbers given in array k. 
+
+    :param float omega: Frequency
+    :param numpy.ndarray k: Spatial wavenumber
+    :param float dz: Layer thickness
+    :param float sigma: P-wave modulus in layer
+    :param float mu: S-wave modulus in layer
+    :param float rho: Density in layer
+    :param pyprop8._scaledmatrix.ScaledMatrixStack m2: 2D system for propagation
+    :param pyprop8._scaledmatrix.ScaledMatrixStack m2: 4D system for propagation
+    :param pyprop8._scaledmatrix.ScaledMatrixStack m2: 6D system for propagation
+    :param bool inplace: Overwrite input system with result?
+    """
     # Propagate the systems in m2/m4/m6 through layer.
     if mu == 0:
         raise NotImplementedError(
@@ -504,11 +628,12 @@ def propagate(omega, k, dz, sigma, mu, rho, m2=None, m4=None, m6=None, inplace=T
         return propagate_zerofreq(k, dz, sigma, mu, rho, m2, m4, m6, inplace)
     nk = k.shape[0]
     if m4 is not None or m6 is not None:
-        zsig = np.lib.scimath.sqrt(k**2 - rho * omega**2 / sigma)
+        zsig = np.lib.scimath.sqrt(k**2 - rho * omega**2 / sigma) #(2011) Eq.58
         csig, ssig, scalesig = exphyp(dz * zsig)
-    zmu = np.lib.scimath.sqrt(k**2 - rho * omega**2 / mu)
+    zmu = np.lib.scimath.sqrt(k**2 - rho * omega**2 / mu) #(2011) Eq.59
     cmu, smu, scalemu = exphyp(dz * zmu)
     if m2 is not None:
+        # exp(h A) with A as in (2011) eq. 15
         M = np.zeros((nk, 2, 2), dtype="complex128")
         M[:, 0, 0] = cmu
         M[:, 0, 1] = smu / (mu * zmu)
@@ -523,6 +648,7 @@ def propagate(omega, k, dz, sigma, mu, rho, m2=None, m4=None, m6=None, inplace=T
     else:
         m2r = None
     if m4 is not None:
+        # Exp(h A'); split into terms involving zeta_p and terms involving zeta_s (see `notes/otoole_woodhouse_2011.nb`)
         exphap_s = np.zeros([nk, 4, 4], dtype="complex128")
         exphap_s[:, 0, 0] = csig
         exphap_s[:, 0, 1] = csig * k / omega**2
@@ -682,6 +808,21 @@ def propagate(omega, k, dz, sigma, mu, rho, m2=None, m4=None, m6=None, inplace=T
 def propagate_deriv(
     omega, k, dz, sigma, mu, rho, m2=None, m4=None, m6=None, inplace=True
 ):
+    """Calculate derivative of propagation through a layer of thickness dz and physical
+    properties (sigma, mu, rho) wrt layer thickness for a stack of minor vectors corresponding to
+    spatial wavenumbers given in array k. 
+
+    :param float omega: Frequency
+    :param numpy.ndarray k: Spatial wavenumber
+    :param float dz: Layer thickness
+    :param float sigma: P-wave modulus in layer
+    :param float mu: S-wave modulus in layer
+    :param float rho: Density in layer
+    :param pyprop8._scaledmatrix.ScaledMatrixStack m2: 2D system for propagation
+    :param pyprop8._scaledmatrix.ScaledMatrixStack m2: 4D system for propagation
+    :param pyprop8._scaledmatrix.ScaledMatrixStack m2: 6D system for propagation
+    :param bool inplace: Overwrite input system with result?
+    """
     if np.any(k == 0):
         raise ValueError("propagate_deriv does not handle k==0.")
     if omega == 0:  # Special handler for zero-frequency system
@@ -846,6 +987,9 @@ def propagate_deriv(
 
 
 def makeN(s):
+    """
+    Compute the matrix ``N`` for a given system
+    """
     # (2011) Eq. 52
     #
     m = s.M
@@ -880,6 +1024,7 @@ def makeN(s):
 
 
 def makeDelta(scm1, scm2, sh=False):
+    """Compute delta given two systems"""
     # 2011 Eqs. 47 & 53
     m1 = scm1.M
     m2 = scm2.M

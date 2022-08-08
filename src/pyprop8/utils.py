@@ -214,6 +214,8 @@ def earth_flattening_transformation(spherical_model_table, l, radius):
     the parameter l. A discussion of this can be found following eq.(70) in
     the Chapman & Orcutt paper. 
 
+    Also, note that it may be necessary to apply transformations to other 
+    quantities e.g. the depths of sources and buried receivers.  
    
     :param list spherical_model_table: The model as expressed in a spherical
         geometry. The model table should be given in a manner similar to that 

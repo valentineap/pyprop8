@@ -1,8 +1,12 @@
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/valentineap/pyprop8/HEAD?labpath=examples%2Fdemo.ipynb)
+
 # pyprop8
 
 This package provides a lightweight Python implementation of the seismogram calculation algorithm set out in [O'Toole & Woodhouse (2011)](https://doi.org/10.1111/j.1365-246X.2011.05210.x), together with the source derivatives set out in [O'Toole, Valentine & Woodhouse (2012)](https://doi.org/10.1111/j.1365-246X.2012.05608.x). It is intended to provide a lightweight, easy-to-install seismological forward model suitable for use in teaching and research (in particular, to provide a computationally-cheap yet physically-realistic forward problem for use in the development and testing of inversion algorithms).
 
-Full documentation is [available here](https://pyprop8.readthedocs.io/).
+Full documentation is [available here](https://pyprop8.readthedocs.io/), and you can try the package out [using Binder](https://mybinder.org/v2/gh/valentineap/pyprop8/HEAD?labpath=examples%2Fdemo.ipynb).
+
+A list of projects that have made use of `pyprop8` can be found [here](USERS.md); please feel free to [add your own](CONTRIBUTING.md).
 
 ## Installation
 
@@ -18,7 +22,9 @@ The core functions of this package depend only on:
 - [numpy](https://numpy.org)
 - [scipy](https://scipy.org)
 
-`pyprop8` will also use [`tqdm`](https://github.com/tqdm/tqdm) if it is available. The package also includes some sample visualisation functions which are dependent on [`matplotlib`](https://matplotlib.org').
+`pyprop8` will also use [`tqdm`](https://github.com/tqdm/tqdm) if it is available, to display progress bars. 
+
+Some of the examples found in `examples/` may have additional dependencies and requirements, including [Jupyter](https://jupyter.org) and [`matplotlib`](https://matplotlib.org'). Look for a `requirements.txt` file in the relevant example directory; you can install the necessary pacakges using the command `pip install -r requirements.txt`.
 
 ## Citing this package
 

@@ -1,0 +1,3 @@
+pyprop8
+numpy
+matplotlib
