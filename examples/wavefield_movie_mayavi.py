@@ -31,7 +31,7 @@ else:
     # To ensure a high-quality resolution of the surface, increase the
     # spatial (k-space) sampling
     stencil_args = {'kmin':0,'kmax':5,'nk':12000}
-box_size = 100
+box_size = 70
 # Earth model to use
 
 # These values are Based on Crust1.0 for Idaho
@@ -77,32 +77,43 @@ insar[mask,:] = np.nan
 max_norm = np.linalg.norm(seismograms,2,axis=2).max()
 max_vert = abs(seismograms[:,:,2,:]).max()
 
-print([abs(seismograms[:,:,i,:]).max() for i in range(3)] )
-scale_horiz = 0. #box_size/max_norm
+# print([abs(seismograms[:,:,i,:]).max() for i in range(3)] )
+scale_horiz = 0.5 #box_size/max_norm
 scale_vert = 0.5 #scale_horiz
 cmax = 1.05*scale_vert*max_vert
 j=0
 print("cmax=%f"%cmax,scale_vert,scale_horiz)
 mlab.options.offscreen=True
-fig = mlab.figure(size=(1024,1024))
+fig = mlab.figure(size=(320,320))
 #surf = mlab.mesh(xx+scale_horiz*seismograms[:,:,0,j],yy+scale_horiz*seismograms[:,:,1,j],scale_vert*seismograms[:,:,2,j])
-# for i in tqdm.tqdm(range(nt)):
-#     mlab.clf()
+ax_visible = False
+ax_range = (-100,100,-100,100,-2*cmax,cmax)
+focalpoint=(0,0,-cmax)
+focaldist=400
+view_elev = 60
+for i in tqdm.tqdm(range(nt)):
+    mlab.clf()
     
-#     surf = mlab.mesh(xx+scale_horiz*seismograms[:,:,0,i],
-#                      yy+scale_horiz*seismograms[:,:,1,i],
-#                      scale_vert*seismograms[:,:,2,i],
-#                      vmin=-cmax,vmax=cmax,#extent=[-100,100,-100,100,-cmax,cmax],
-#                      colormap='RdYlBu',reset_zoom=False)
-#     #mlab.outline()
-#     mlab.axes(ranges=(-100,100,-100,100,-cmax,cmax),extent=(-100,100,-100,100,-cmax,cmax),x_axis_visibility=True,y_axis_visibility=True,z_axis_visibility=True)
-#     mlab.view(azimuth=-45,elevation=60,focalpoint=(0,0,0),distance=400)
+    surf = mlab.mesh(xx+scale_horiz*seismograms[:,:,0,i],
+                     yy+scale_horiz*seismograms[:,:,1,i],
+                     scale_vert*seismograms[:,:,2,i],
+                     vmin=-cmax,vmax=cmax,
+                     colormap='RdYlBu',reset_zoom=False)
+    #mlab.outline()
+    mlab.axes(ranges=ax_range,extent=ax_range,
+                x_axis_visibility=ax_visible,y_axis_visibility=ax_visible,z_axis_visibility=ax_visible)
+    t = mlab.text(0.1,0.1,"t=%5.02fs"%time[i],width=0.1)
+    mlab.quiver3d(np.array([0]),np.array([80]),np.array([0.025*cmax]),np.array([0]),np.array([20]),np.array([0]),line_width=3,scale_factor=1,color=(1,1,1))
+    mlab.text(0,105,"N",z=0,width=0.01,color=(1,1,1))
+    mlab.text()
+    mlab.view(azimuth=-45,elevation=view_elev,focalpoint=focalpoint,distance=focaldist)
 
+    #   t.font_size=10
 
-#     mlab.savefig("animation/test%04i.png"%i)
+    mlab.savefig("animation/test%04i.png"%i)
 for i in tqdm.tqdm(range(nt,nt+360)):
     azim = -45+(i+1-nt)
-    view_elev = 60
+
     mlab.clf()
     surf = mlab.mesh(xx+scale_horiz*seismograms[:,:,0,-1],
                      yy+scale_horiz*seismograms[:,:,1,-1],
@@ -116,8 +127,15 @@ for i in tqdm.tqdm(range(nt,nt+360)):
     img = mlab.imshow(insar.dot(los_vector)%28,colormap='jet',extent=[-100,100,-100,100,-2*cmax,-2*cmax])
     img.module_manager.scalar_lut_manager.lut.nan_color = 0, 0, 0, 0
     img.update_pipeline()
-    mlab.axes(ranges=(-100,100,-100,100,-2*cmax,cmax),extent=(-100,100,-100,100,-2*cmax,cmax),x_axis_visibility=True,y_axis_visibility=True,z_axis_visibility=True)
-    mlab.view(azimuth=azim,elevation=view_elev,focalpoint=(0,0,-cmax),distance=400)
+    mlab.axes(ranges=ax_range,extent=ax_range,
+                x_axis_visibility=ax_visible,
+                y_axis_visibility=ax_visible,
+                z_axis_visibility=ax_visible)
+    t = mlab.text(0.05,0.1,"t=%5.02fs"%time[-1],width=0.1)
+    t =
+    mlab.quiver3d(np.array([0]),np.array([80]),np.array([0.025*cmax]),np.array([0]),np.array([20]),np.array([0]),line_width=3,scale_factor=1,color=(1,1,1))
+    mlab.text(0,105,"N",z=0,width=0.01,color=(1,1,1))
+    mlab.view(azimuth=azim,elevation=view_elev,focalpoint=focalpoint,distance=focaldist)
 
     
 
