@@ -22,9 +22,9 @@ The core functions of this package depend only on:
 - [numpy](https://numpy.org)
 - [scipy](https://scipy.org)
 
-`pyprop8` will also use [`tqdm`](https://github.com/tqdm/tqdm) if it is available. 
+`pyprop8` will also use [`tqdm`](https://github.com/tqdm/tqdm) if it is available, to display progress bars. 
 
-Some of the examples found in `examples/` may have additional dependencies and requirements, including [Jupyter](https://jupyter.org) and [`matplotlib`](https://matplotlib.org').
+Some of the examples found in `examples/` may have additional dependencies and requirements, including [Jupyter](https://jupyter.org) and [`matplotlib`](https://matplotlib.org'). Look for a `requirements.txt` file in the relevant example directory; you can install the necessary pacakges using the command `pip install -r requirements.txt`.
 
 ## Citing this package
 
