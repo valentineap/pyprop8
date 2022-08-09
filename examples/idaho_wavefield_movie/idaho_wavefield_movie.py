@@ -45,7 +45,7 @@ receivers = pp.RegularlyDistributedReceivers(1,100,nr,0,360,nphi,depth=0)
 xx,yy = receivers.as_xy()
 
 
-seismogram_file = 'data.bin'
+seismogram_file = 'seismograms.bin'
 compute_seismograms=False # Set to True to compute seismograms rather than load
 if compute_seismograms:
     time, seismograms = pp.compute_seismograms(model,source,receivers,nt,delta_t,
