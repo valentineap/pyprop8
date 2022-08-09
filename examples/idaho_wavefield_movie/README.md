@@ -6,4 +6,9 @@ Source parameters are drawn from the [Global CMT catalogue](https://www.globalcm
 
 The visualisation is done using [`mayavi`](https://pypi.org/project/mayavi/). In theory this should be pip-installable, but this does not seem as robust as it could be. I found `macports` to be the most straightforward route, by installing packages `vtk +python39` and `py39-mayavi`. Obviously this is only a viable route on a Mac!
 
-![Example video](./idaho.mp4)
+![Example video](./idaho.mp4 video/mp4)
+
+<video width="320" height="240" controls>
+  <source src="./idaho.mp4" type="video/mp4">
+Your browser does not support the video tag.
+</video>
