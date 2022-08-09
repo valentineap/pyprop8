@@ -110,60 +110,65 @@ boxcolor=(0,0,0) # Color for box corner annotation
 ticksize=5 # Size of box corners
 
 # mayavi is supposed to do animations but I can't make it work properly. #ust generate each frame 
-# separately and then stitch them together at the end...
+# separately and then stitch them together at the end.
+#
+# The plotting code could doubtless be made cleaner and nicer...
 #
 # First a loop for plotting wavefield evolution over time
-for i in tqdm.tqdm(range(nt)):
-    # Clear the image and start again
-    mlab.clf()
+do_wavefield=True # Useful to be able to turn this off and skip straight to second loop
+if do_wavefield:
+    for i in tqdm.tqdm(range(nt)):
+        # Clear the image and start again
+        mlab.clf()
 
-    # Compute data for the image of wavefronts -> magnitude of acceleration at this instant
-    accstep = np.zeros([ngrid,ngrid])
-    if i==0 or i==nt-1:
-        pass # We have lost two time steps due to the numerical differentiation
-    else:
-        # Interpolate the acceleration data.
-        # Note that if timestep * wavespeed < distance between sampling points in xx/yy, aliasing will happen
-        accstep = griddata((xx.flatten(),yy.flatten()),acc[:,:,i-1].flatten(),(xgrid.flatten(),ygrid.flatten())).reshape((ngrid,ngrid))
-    
-    # Plot the main surface-displacement image
-    surf = mlab.mesh(xx+scale_horiz*seismograms[:,:,0,i],
-                     yy+scale_horiz*seismograms[:,:,1,i],
-                     scale_vert*seismograms[:,:,2,i],
-                     vmin=-cmax,vmax=cmax,
-                     colormap='RdYlBu',reset_zoom=False)
+        # Compute data for the image of wavefronts -> magnitude of acceleration at this instant
+        accstep = np.zeros([ngrid,ngrid])
+        if i==0 or i==nt-1:
+            pass # We have lost two time steps due to the numerical differentiation
+        else:
+            # Interpolate the acceleration data.
+            # Note that if timestep * wavespeed < distance between sampling points in xx/yy, aliasing will happen
+            accstep = griddata((xx.flatten(),yy.flatten()),acc[:,:,i-1].flatten(),(xgrid.flatten(),ygrid.flatten())).reshape((ngrid,ngrid))
+        
+        # Plot the main surface-displacement image
+        surf = mlab.mesh(xx+scale_horiz*seismograms[:,:,0,i],
+                        yy+scale_horiz*seismograms[:,:,1,i],
+                        scale_vert*seismograms[:,:,2,i],
+                        vmin=-cmax,vmax=cmax,
+                        colormap='seismic',reset_zoom=False)
 
-    # Plot corners of square region used for lower plot
-    mlab.plot3d([box_size-ticksize,box_size,box_size],[-box_size,-box_size,-box_size+ticksize],[hover,hover,hover],tube_radius=0.2,color=boxcolor)
-    mlab.plot3d([-box_size+ticksize,-box_size,-box_size],[-box_size,-box_size,-box_size+ticksize],[hover,hover,hover],tube_radius=0.2,color=boxcolor)
-    mlab.plot3d([box_size-ticksize,box_size,box_size],[box_size,box_size,box_size-ticksize],[hover,hover,hover],tube_radius=0.2,color=boxcolor)
-    mlab.plot3d([-box_size+ticksize,-box_size,-box_size],[box_size,box_size,box_size-ticksize],[hover,hover,hover],tube_radius=0.2,color=boxcolor)
+        # Plot corners of square region used for lower plot
+        mlab.plot3d([box_size-ticksize,box_size,box_size],[-box_size,-box_size,-box_size+ticksize],[hover,hover,hover],tube_radius=0.2,color=boxcolor)
+        mlab.plot3d([-box_size+ticksize,-box_size,-box_size],[-box_size,-box_size,-box_size+ticksize],[hover,hover,hover],tube_radius=0.2,color=boxcolor)
+        mlab.plot3d([box_size-ticksize,box_size,box_size],[box_size,box_size,box_size-ticksize],[hover,hover,hover],tube_radius=0.2,color=boxcolor)
+        mlab.plot3d([-box_size+ticksize,-box_size,-box_size],[box_size,box_size,box_size-ticksize],[hover,hover,hover],tube_radius=0.2,color=boxcolor)
 
-    # Plot the lower image showing wavefronts. Remember imshow needs array transposed!
-    mlab.imshow(accstep.T,colormap='bone',extent=[-box_size,box_size,-box_size,box_size,-2*cmax,-2*cmax],vmin=0,vmax=maxacc)
+        # Plot the lower image showing wavefronts. Remember imshow needs array transposed!
+        mlab.imshow(accstep.T,colormap='bone',extent=[-box_size,box_size,-box_size,box_size,-2*cmax,-2*cmax],vmin=0,vmax=maxacc)
 
-    # Label the lower image
-    mlab.text3d(-box_size-ticksize,-4*ticksize,-2*cmax,"%i x %ikm"%(2*box_size,2*box_size),scale=5,orient_to_camera=False,orientation=(0,0,90))
-    mlab.text3d(-box_size+5*ticksize,box_size+ticksize,-2*cmax,"Ground acceleration",scale=5,orient_to_camera=False,orientation=(0,0,0))
+        # Label the lower image
+        mlab.text3d(-box_size-ticksize,-4*ticksize,-2*cmax,"%i x %ikm"%(2*box_size,2*box_size),scale=5,orient_to_camera=False,orientation=(0,0,90))
+        mlab.text3d(-box_size+5*ticksize,box_size+ticksize,-2*cmax,"Ground acceleration",scale=5,orient_to_camera=False,orientation=(0,0,0))
 
-    # Set the visible volume
-    mlab.axes(ranges=ax_range,extent=ax_range,
-                x_axis_visibility=ax_visible,y_axis_visibility=ax_visible,z_axis_visibility=ax_visible)
+        # Set the visible volume
+        mlab.axes(ranges=ax_range,extent=ax_range,
+                    x_axis_visibility=ax_visible,y_axis_visibility=ax_visible,z_axis_visibility=ax_visible)
 
-    # Add some annotations
-    mlab.text(0.05,0.05,"t=%5.02fs"%time[i],width=0.2)
+        # Add some annotations
+        mlab.text(0.05,0.025,"t=%05.02fs"%time[i],width=0.2)
+        mlab.text(0.05,0.93,"Mw6.5, Stanley, Idaho",width=0.45)
 
-    # Compass arrow
-    mlab.quiver3d(np.array([0]),np.array([80]),np.array([hover]),np.array([0]),np.array([20]),np.array([0]),line_width=3,scale_factor=1,color=boxcolor)
-    mlab.text(0,105,"N",z=0,width=0.01,color=boxcolor)
-    mlab.text(0.45,0.1,"Made with pyprop8",width=0.45)
-    mlab.text(0.4,0.05,"github.com/valentineap/pyprop8",width=0.55)
+        # Compass arrow
+        mlab.quiver3d(np.array([0]),np.array([80]),np.array([hover]),np.array([0]),np.array([20]),np.array([0]),line_width=3,scale_factor=1,color=boxcolor)
+        mlab.text(0,105,"N",z=0,width=0.01,color=boxcolor)
+        mlab.text(0.45,0.075,"Made with pyprop8",width=0.45)
+        mlab.text(0.4,0.025,"github.com/valentineap/pyprop8",width=0.55)
 
-    # Set the camera position
-    mlab.view(azimuth=-45,elevation=view_elev,focalpoint=focalpoint,distance=focaldist)
+        # Set the camera position
+        mlab.view(azimuth=-45,elevation=view_elev,focalpoint=focalpoint,distance=focaldist)
 
-    # And save!
-    mlab.savefig(frame_file_fmt%i)
+        # And save!
+        mlab.savefig(frame_file_fmt%i)
 
 # Second loop for rotating camera + InSAR
 for i in tqdm.tqdm(range(nt,nt+360)):
@@ -178,7 +183,7 @@ for i in tqdm.tqdm(range(nt,nt+360)):
                      yy+scale_horiz*seismograms[:,:,1,-1],
                      scale_vert*seismograms[:,:,2,-1],
                      vmin=-cmax,vmax=cmax,
-                     colormap='RdYlBu',
+                     colormap='seismic',
                     )
                 
     # Plot 'corners' of square region used for lower plot
@@ -188,16 +193,25 @@ for i in tqdm.tqdm(range(nt,nt+360)):
     mlab.plot3d([-box_size+ticksize,-box_size,-box_size],[box_size,box_size,box_size-ticksize],[hover,hover,hover],tube_radius=0.2,color=boxcolor)
 
     # Compute line-of-sight vector corresponding to current look direction
-    # Should perhaps ad#ust view_elev to account for fact that we are not looking 
-    # directly at origin?
-    los_vector = np.array([np.cos(np.deg2rad(azim))*np.sin(np.deg2rad(view_elev)),
-                           np.sin(np.deg2rad(azim))*np.sin(np.deg2rad(view_elev)),
-                           np.cos(np.deg2rad(view_elev))])
+    # Camera is pointed at a point *below* the z=0 plane so the elevation angle for 
+    # our view of the z=0 surface is not the same as the elevation angle for the
+    # camera. A bit of trigonometry gives
+    #     tan phi = b sin th / (b cos th + a)
+    # where a is the z-coordinate of the focal point, b is the camera-focal point 
+    # distance, th is the camera elevation and phi is the effective viewing angle.
+    los_elev = np.rad2deg(np.arctan2(focaldist*np.sin(view_elev),(focaldist*np.cos(view_elev) + focalpoint[2])))
+    # Want vector *from* surface *to* satellite
+    # This means that a +ve value in our image corresponds to motion *towards* the satellite
+    los_vector = -np.array([np.cos(np.deg2rad(azim))*np.sin(np.deg2rad(los_elev)),
+                            np.sin(np.deg2rad(azim))*np.sin(np.deg2rad(los_elev)),
+                            np.cos(np.deg2rad(los_elev))])
+    print(los_vector)
 
     # Make InSAR image. Again remember the transpose!
-    img = mlab.imshow((insar.dot(los_vector).T+14)%28-14,colormap='#et',
+    img = mlab.imshow((insar.dot(los_vector).T+14)%28-14,colormap='jet',
                     extent=[-box_size,box_size,-box_size,box_size,-2*cmax,-2*cmax],
                     vmin=-14,vmax=14)
+    img.module_manager.scalar_lut_manager.reverse_lut = True # Reverse the colormap
 
     # Add the colorbar and resize it
     colorbar = mlab.colorbar(img,orientation='vertical',nb_labels=3,label_fmt="%.0f mm")
@@ -215,15 +229,15 @@ for i in tqdm.tqdm(range(nt,nt+360)):
                 z_axis_visibility=ax_visible)
 
     # Add some annotations
-    t = mlab.text(0.05,0.05,"t=%5.02fs"%time[-1],width=0.2)
-
+    mlab.text(0.05,0.025,"t=%05.02fs"%time[-1],width=0.2)
+    mlab.text(0.05,0.93,"Mw6.5, Stanley, Idaho",width=0.45)
     # Compass arrow
     mlab.quiver3d(np.array([0]),np.array([80]),np.array([hover]),
                     np.array([0]),np.array([20]),np.array([0]),
                     line_width=3,scale_factor=1,color=boxcolor)
     mlab.text(0,105,"N",z=0,width=0.01,color=boxcolor)
-    mlab.text(0.45,0.1,"Made with pyprop8",width=0.45)
-    mlab.text(0.4,0.05,"github.com/valentineap/pyprop8",width=0.55)
+    mlab.text(0.45,0.075,"Made with pyprop8",width=0.45)
+    mlab.text(0.4,0.025,"github.com/valentineap/pyprop8",width=0.55)
 
     # Set the camera position
     mlab.view(azimuth=azim,elevation=view_elev,focalpoint=focalpoint,distance=focaldist)
