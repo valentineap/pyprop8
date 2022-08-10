@@ -47,6 +47,7 @@ xx,yy = receivers.as_xy()
 
 seismogram_file = 'seismograms.bin'
 compute_seismograms=False # Set to True to compute seismograms rather than load
+draft_mode = False         # Don't bother trying to get real seismograms -- for checking layout etc
 if compute_seismograms:
     time, seismograms = pp.compute_seismograms(model,source,receivers,nt,delta_t,
                                             source_time_function=stf,stencil_kwargs=stencil_args)
@@ -55,14 +56,20 @@ if compute_seismograms:
             np.save(fp, time)
             np.save(fp, seismograms)
 else:
-    print("Attempting to load seismograms from file:")
-    try:
-        with open(seismogram_file,'rb') as fp:
-            time = np.load(fp)
-            seismograms = np.load(fp)
-    except:
-        print("Failed. Consider re-running with `compute_seismograms=True`")
-        raise
+    if draft_mode:
+        time = np.arange(nt)*delta_t
+        seismograms = np.zeros([nr,nphi,3,nt])
+        seismograms[0,0,2,0] = 116.2 # So that max(abs(seismograms[:,:,2,:])) returns something plausible
+
+    else:
+        print("Attempting to load seismograms from file:",seismogram_file)
+        try:
+            with open(seismogram_file,'rb') as fp:
+                time = np.load(fp)
+                seismograms = np.load(fp)
+        except:
+            print("Failed. Consider re-running with `compute_seismograms=True`")
+            raise
 
 
 # Construct regular grid for interpolation of functions
@@ -155,14 +162,15 @@ if do_wavefield:
                     x_axis_visibility=ax_visible,y_axis_visibility=ax_visible,z_axis_visibility=ax_visible)
 
         # Add some annotations
-        mlab.text(0.05,0.025,"t=%05.02fs"%time[i],width=0.2)
-        mlab.text(0.05,0.93,"Mw6.5, Stanley, Idaho",width=0.45)
+        mlab.text(0.025,0.025,"t=%05.02fs"%time[i],width=0.2)
+        mlab.text(0.025,0.93,"31 March 2020 - Stanley, Idaho - Mw6.5 at 13.8km depth",width=0.95)
+        mlab.text(0.025,0.475,"Surface\ndisplacement\n(x500,000)",width=0.225)
 
         # Compass arrow
         mlab.quiver3d(np.array([0]),np.array([80]),np.array([hover]),np.array([0]),np.array([20]),np.array([0]),line_width=3,scale_factor=1,color=boxcolor)
         mlab.text(0,105,"N",z=0,width=0.01,color=boxcolor)
-        mlab.text(0.45,0.075,"Made with pyprop8",width=0.45)
-        mlab.text(0.4,0.025,"github.com/valentineap/pyprop8",width=0.55)
+        #mlab.text(0.45,0.075,"Made with pyprop8",width=0.45)
+        mlab.text(0.425,0.035,"github.com/valentineap/pyprop8",width=0.55)
 
         # Set the camera position
         mlab.view(azimuth=-45,elevation=view_elev,focalpoint=focalpoint,distance=focaldist)
@@ -205,7 +213,6 @@ for i in tqdm.tqdm(range(nt,nt+360)):
     los_vector = -np.array([np.cos(np.deg2rad(azim))*np.sin(np.deg2rad(los_elev)),
                             np.sin(np.deg2rad(azim))*np.sin(np.deg2rad(los_elev)),
                             np.cos(np.deg2rad(los_elev))])
-    print(los_vector)
 
     # Make InSAR image. Again remember the transpose!
     img = mlab.imshow((insar.dot(los_vector).T+14)%28-14,colormap='jet',
@@ -215,8 +222,8 @@ for i in tqdm.tqdm(range(nt,nt+360)):
 
     # Add the colorbar and resize it
     colorbar = mlab.colorbar(img,orientation='vertical',nb_labels=3,label_fmt="%.0f mm")
-    colorbar.scalar_bar_representation.position = [0.025, 0.15]
-    colorbar.scalar_bar_representation.position2 = [0.1, 0.3]
+    colorbar.scalar_bar_representation.position = [0.025, 0.1]
+    colorbar.scalar_bar_representation.position2 = [0.1, 0.25]
 
     # Label the lower image
     mlab.text3d(-box_size-ticksize,-4*ticksize,-2*cmax,"%i x %ikm"%(2*box_size,2*box_size),scale=5,orient_to_camera=False,orientation=(0,0,90))
@@ -229,15 +236,16 @@ for i in tqdm.tqdm(range(nt,nt+360)):
                 z_axis_visibility=ax_visible)
 
     # Add some annotations
-    mlab.text(0.05,0.025,"t=%05.02fs"%time[-1],width=0.2)
-    mlab.text(0.05,0.93,"Mw6.5, Stanley, Idaho",width=0.45)
+    mlab.text(0.025,0.025,"t=%05.02fs"%time[-1],width=0.2)
+    mlab.text(0.025,0.93,"31 March 2020 - Stanley, Idaho - Mw6.5 at 13.8km depth",width=0.95)
+    mlab.text(0.025,0.475,"Surface\ndisplacement\n(x500,000)",width=0.225)
     # Compass arrow
     mlab.quiver3d(np.array([0]),np.array([80]),np.array([hover]),
                     np.array([0]),np.array([20]),np.array([0]),
                     line_width=3,scale_factor=1,color=boxcolor)
     mlab.text(0,105,"N",z=0,width=0.01,color=boxcolor)
-    mlab.text(0.45,0.075,"Made with pyprop8",width=0.45)
-    mlab.text(0.4,0.025,"github.com/valentineap/pyprop8",width=0.55)
+    #mlab.text(0.45,0.075,"Made with pyprop8",width=0.45)
+    mlab.text(0.425,0.035,"github.com/valentineap/pyprop8",width=0.55)
 
     # Set the camera position
     mlab.view(azimuth=azim,elevation=view_elev,focalpoint=focalpoint,distance=focaldist)
