@@ -1,6 +1,7 @@
 # Idaho earthquake animation
 
 ![](./snapshot.png)
+
 This script computes seimic observables for the Mw6.5 earthquake that occurred in Stanley, Idaho on 31st March 2020. It then generates a movie visualising:
 - The surface displacement, including both static and dynamic parts;
 - The amplitude of ground acceleration (highlighting the dynamic component of the response);
