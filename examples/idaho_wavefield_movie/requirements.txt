@@ -1,0 +1,7 @@
+numpy
+scipy
+pyprop8
+mayavi
+PyQt5
+tqdm
+
