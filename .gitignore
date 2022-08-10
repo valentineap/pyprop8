@@ -3,3 +3,5 @@ dist/
 *.egg-info/
 docs/_build/*
 env/
+.DS_STORE
+.ipynb_checkpoints
