@@ -46,7 +46,7 @@ xx,yy = receivers.as_xy()
 
 
 seismogram_file = 'seismograms.bin'
-compute_seismograms=False # Set to True to compute seismograms rather than load
+compute_seismograms=True # Set to True to compute seismograms rather than load
 draft_mode = False         # Don't bother trying to get real seismograms -- for checking layout etc
 if compute_seismograms:
     time, seismograms = pp.compute_seismograms(model,source,receivers,nt,delta_t,
@@ -96,7 +96,7 @@ insar[:,:,2] = griddata((xx.flatten(),yy.flatten()),seismograms[:,:,2,-1].flatte
 max_vert = abs(seismograms[:,:,2,:]).max()
 
 # Scale factors to convert seismic displacements (in mm) to graph coordinates (km)
-scale_horiz = 0.5 #km/mm i.e. amplification of 500,000 x
+scale_horiz = 0.5 #km/mm i.e. amplification of 50,000 x
 scale_vert = 0.5 #km/mm
 
 #Maximum for colour/z axis is 'a little more' than maximum displacement
@@ -164,7 +164,7 @@ if do_wavefield:
         # Add some annotations
         mlab.text(0.025,0.025,"t=%05.02fs"%time[i],width=0.2)
         mlab.text(0.025,0.93,"31 March 2020 - Stanley, Idaho - Mw6.5 at 13.8km depth",width=0.95)
-        mlab.text(0.025,0.475,"Surface\ndisplacement\n(x500,000)",width=0.225)
+        mlab.text(0.025,0.475,"Surface\ndisplacement\n(x50,000)",width=0.225)
 
         # Compass arrow
         mlab.quiver3d(np.array([0]),np.array([80]),np.array([hover]),np.array([0]),np.array([20]),np.array([0]),line_width=3,scale_factor=1,color=boxcolor)
@@ -238,7 +238,7 @@ for i in tqdm.tqdm(range(nt,nt+360)):
     # Add some annotations
     mlab.text(0.025,0.025,"t=%05.02fs"%time[-1],width=0.2)
     mlab.text(0.025,0.93,"31 March 2020 - Stanley, Idaho - Mw6.5 at 13.8km depth",width=0.95)
-    mlab.text(0.025,0.475,"Surface\ndisplacement\n(x500,000)",width=0.225)
+    mlab.text(0.025,0.475,"Surface\ndisplacement\n(x50,000)",width=0.225)
     # Compass arrow
     mlab.quiver3d(np.array([0]),np.array([80]),np.array([hover]),
                     np.array([0]),np.array([20]),np.array([0]),
