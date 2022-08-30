@@ -1,0 +1,116 @@
+\documentclass[a4paper,11pt]{article}
+\newcommand{\metres}{\ensuremath{\left[\,\mathrm{m\,}\right]}}
+\newcommand{\seconds}{\ensuremath{\left[\,\mathrm{s}\,\right]}}
+\newcommand{\kg}{\ensuremath{\left[\,\mathrm{kg}\,\right]}}
+\usepackage{amsmath}
+%\usepackage[margin=3cm]{geometry}
+\setlength{\parskip}{6pt}
+\setlength{\parindent}{0pt}
+\usepackage{mathtools}  
+\mathtoolsset{showonlyrefs} 
+\title{Units for `pyprop8'}
+\author{Andrew Valentine}
+\begin{document}
+\maketitle
+The wave equation as stated in \cite{OToole2011} is
+\begin{equation}
+T_{ij,j} +f_i = \rho \partial_t^2 u_i
+\end{equation}
+with
+\begin{align}
+T_{ij} &= \mu(u_{i,j} + u_{j,i}) + \lambda u_{k,k} \delta_{ij}\\
+\mu &=\rho v_s^2
+\end{align}
+and $f_i$ representing force \emph{per unit volume} (see \cite{Woodhouse2007})
+\begin{equation}
+f_i = (F_i - M_{ij}\partial_j)\delta(\mathbf{x}-\mathbf{x}_s)H(t)
+\end{equation}
+The purpose of this note is to derive the units of $u_i$ given the units of all other quantites.
+
+We assume that all input quantities are specified in arbitrary units that can nevertheless be related back to the SI system:
+\begin{align}
+\mathrm{distance} &\to \alpha \metres\\
+v_s, v_p &\to \alpha \metres \seconds^{-1}\\
+\rho & \to \beta \kg \metres^{-3}\\
+F_i & \to \gamma \kg \metres \seconds^{-2}\\
+M_{ij} & \to \epsilon \kg \metres^2 \seconds^{-2}
+\end{align}
+For example, if velocities are expressed in $\mathrm{km}/\mathrm{s}$ we would have $\alpha = 10^3$. The resulting seismogram has units 
+\begin{equation}
+u_i \to \zeta \metres
+\end{equation}
+We are effectively seeking an expression for $\zeta$ in terms of $\alpha$, $\beta$, $\gamma$ and $\epsilon$.
+
+We now determine the units of derived quantities. Straightforwardly, \[\lambda,\mu \to \alpha^2\beta\kg\metres^{-1}\seconds^{-2}\]
+while $u_{i,j}$ requires us to recognise that the coordinate system is expressed in units of distance, so that \[u_{i,j}\to\frac{\zeta}{\alpha}\] Thus we have
+\begin{align}
+T_{ij} &\to \alpha\beta\zeta\kg\metres^{-1}\seconds^{-2}\\
+T_{ij,j} &\to \beta\zeta\kg\metres^{-2}\seconds^{-2}
+\end{align}
+and straightforwardly
+\begin{align}
+\partial_t^2 u_i &\to \zeta \metres\seconds^{-2}\\
+\rho \partial_t^2 u_i &\to \beta\zeta \kg\metres^{-2}\seconds^{-2}
+\end{align}
+showing that $T_{ij,j}$ and $\rho \partial_t^2 u_i$ are dimensionally consistent, as required.
+
+For the force term, we have
+\begin{equation}
+M_{ij}\delta_j \to \frac{\epsilon}{\alpha}\kg \metres \seconds^{-2}
+\end{equation}
+and we must have 
+\begin{equation}
+\gamma = \frac{\epsilon}{\alpha}
+\end{equation}
+for dimensional consistency. Noting that the delta-function acts as a volumetric density distribution, we have
+\begin{equation}
+\delta(\mathbf{x}-\mathbf{x}_s) \to \frac{1}{\alpha^3}\metres^{-3}
+\end{equation}
+and thus 
+\begin{equation}
+f_i \to \frac{\epsilon}{\alpha^4} \kg \metres^{-2}\seconds^{-2}
+\end{equation}
+For this to be dimensionally-consistent with the other two terms, we require
+\begin{equation}
+\frac{\epsilon}{\alpha^4} = \beta \zeta
+\end{equation}
+Thus we find
+\begin{equation}
+\zeta = \frac{\epsilon}{\alpha^4\beta}
+\end{equation}
+and we have required $\gamma = \epsilon/\alpha$. We have also assumed that the spatial dimensions of the model, and the wave velocities, are expressed in the same system (i.e., $\alpha$ is shared by both).
+
+If we express all model quantities in SI units (i.e. distances in metres, velocities in $\mathrm{m}/\mathrm{s}$, densities in $\mathrm{kg}/\mathrm{m^3}$, forces in $\mathrm{N}$ and moments in $\mathrm{N\,m}$, then all constants are 1 and output is also in SI units of metres. However doing so may be numerically inconvenient.
+
+One convenient alternative, with `nice' numerical values for earth-like materials:
+\begin{align}
+\mathrm{distance}&\to \mathrm{km} &\implies \alpha &= 10^3\\
+v_p, v_s &\to \mathrm{km}/\mathrm{s}\\
+\rho & \to \mathrm{g}/\mathrm{cm}^{3} &\implies \beta &= 10^3
+\end{align}
+Thus $\zeta =10^{-15}\epsilon$. If we wish output to be in mm, which is convenient, then we require $\epsilon=10^{12}$ i.e. moment should be expressed in $\mathrm{TN\,m}$ (or, equivalently, $\mathrm{GN\,km}$). GCMT moment tensor values are quoted in units of $\mathrm{dyne\,cm}$, or equivalently $10^{-7} \mathrm{N\,m}$. We therefore need to multiply the numerical value of catalogue source parameters by a factor of $10^{-19}$ in order to achieve output in mm\footnote{Note that $x [\,\mathrm{units}\,] = \frac{x}{\alpha} [\alpha\,\mathrm{units}]$}. For completeness, we note that this system implies $\gamma = 10^9$ i.e. any force term should be expressed in GN.
+
+
+
+
+\bibliographystyle{unsrt}
+\begin{thebibliography}{1}
+
+\bibitem{OToole2011}
+T.B. O'Toole and J.H. Woodhouse.
+\newblock Numerically stable computation of complete synthetic seismograms
+  including the static displacement in plane layered media.
+\newblock {\em Geophysical Journal International}, 187:1516--1536, 2011.
+
+\bibitem{Woodhouse2007}
+J.H. Woodhouse and A.F. Deuss.
+\newblock {E}arth's free oscillations.
+\newblock In B.~Romanowicz and A.~Dziewo\'{n}ski, editors, {\em Seismology and
+  structure of the {E}arth}, volume~1 of {\em Treatise on Geophysics},
+  chapter~2, pages 31--65. Elsevier, Amsterdam, 2007.
+
+\end{thebibliography}
+
+
+
+\end{document}
