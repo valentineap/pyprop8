@@ -1,4 +1,4 @@
-[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/valentineap/pyprop8/HEAD?labpath=examples%2Fdemo.ipynb)
+[![DOI](https://joss.theoj.org/papers/10.21105/joss.04217/status.svg)](https://doi.org/10.21105/joss.04217) [![PyPI version](https://badge.fury.io/py/pyprop8.svg)](https://badge.fury.io/py/pyprop8) [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/valentineap/pyprop8/HEAD?labpath=examples%2Fdemo.ipynb)
 
 # pyprop8
 
