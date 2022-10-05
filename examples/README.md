@@ -12,7 +12,7 @@ This directory contains various notebooks and scripts that demonstrate some of t
 
 - [idaho_wavefield_movie/idaho_wavefield_movie.py](idaho_wavefield_movie/idaho_wavefield_movie.py) - Generate an animation visualizing the wavefield evolution and line-of-sight static displacement for a Mw6.4 earthquake in Idaho on 31 March 2020 (the [Stanley earthquake](https://www.idahogeology.org/geologic-hazards/earthquake-hazards/stanley-earthquake)).
 
-- [petrinja_wavefield_movie/idaho_wavefield_movie.py](petrinja_wavefield_movie/idaho_wavefield_movie.py) - A similar animation, but for the Mw6.4 earthquake that occurred in Petrinja, Croatia on 29th December 2020.
+- [petrinja_wavefield_movie/petrinja_wavefield_movie.py](petrinja_wavefield_movie/petrinja_wavefield_movie.py) - A similar animation, but for the Mw6.4 earthquake that occurred in Petrinja, Croatia on 29th December 2020.
 
 ## See Also
 
