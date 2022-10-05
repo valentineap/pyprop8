@@ -1,7 +1,5 @@
 # Petrinja earthquake animation
 
-![](./snapshot.png)
-
 This script computes seimic observables for the Mw6.4 earthquake that occurred in Petrinja, Croatia on 29th December 2020. It then generates a movie visualising:
 - The surface displacement, including both static and dynamic parts;
 - The amplitude of ground acceleration (highlighting the dynamic component of the response);
