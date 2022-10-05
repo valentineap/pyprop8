@@ -31,7 +31,7 @@ Some of the examples found in `examples/` may have additional dependencies and r
 If you make use of this code, please acknowledge the work that went into developing it! In particular, if you are preparing a publication, we would appreciate it if you cite both the paper describing the general method, and this specific implementation:
 
 - [O'Toole, T.B. & J.H. Woodhouse (2011)](https://doi.org/10.1111/j.1365-246X.2011.05210.x), "Numerically stable computation of complete synthetic seismograms including the static displacement in plane layered media", Geophysical Journal International, 187, pp.1516-1536, doi:10.1111/j.1365-246X.2011.05210.x
-- Valentine, A.P. & M. Sambridge (2022), "`pyprop8`: A lightweight code to simulate seismic observables in a layered half-space", Journal of Open Source Software
+- [Valentine, A.P. & M. Sambridge (2022)](https://doi.org/10.21105/joss.04217), "`pyprop8`: A lightweight code to simulate seismic observables in a layered half-space", Journal of Open Source Software, 7, 4217, https://doi.org/10.21105/joss.04217
 
 
 If your work relies on being able to calculate the source parameter derivatives, you should also cite the paper describing how these are obtained:
