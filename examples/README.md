@@ -10,7 +10,9 @@ This directory contains various notebooks and scripts that demonstrate some of t
 
 - [otoole_papers/otoole_valentine_woodhouse_2012.py](otoole_papers/otoole_valentine_woodhouse_2012.py) - Code that aims to reproduce the figures presented in [O'Toole et al. (2012)](https://doi.org/10.1111/j.1365-246X.2012.05608.x). Again, some minor differences are likely due to imperfect replication of how the source time function is implemented.
 
-- [idaho_wavefield_movie/idaho_wavefield_movie.py](idaho_wavefield_movie/idaho_wavefield_movie.py) - Generate an animation visualizing the wavefield evolution and line-of-sight static displacement for a Mw6.4 earthquake in Idaho on 31 March 2020 (the [Stanley earthquake](https://www.idahogeology.org/geologic-hazards/earthquake-hazards/stanley-earthquake)). 
+- [idaho_wavefield_movie/idaho_wavefield_movie.py](idaho_wavefield_movie/idaho_wavefield_movie.py) - Generate an animation visualizing the wavefield evolution and line-of-sight static displacement for a Mw6.4 earthquake in Idaho on 31 March 2020 (the [Stanley earthquake](https://www.idahogeology.org/geologic-hazards/earthquake-hazards/stanley-earthquake)).
+
+- [petrinja_wavefield_movie/idaho_wavefield_movie.py](petrinja_wavefield_movie/idaho_wavefield_movie.py) - A similar animation, but for the Mw6.4 earthquake that occurred in Petrinja, Croatia on 29th December 2020.
 
 ## See Also
 
