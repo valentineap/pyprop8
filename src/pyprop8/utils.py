@@ -77,6 +77,21 @@ def stf_boxcar(omega, thalf):
 def stf_cosine_boxcar(omega, thalf, ratio=0.1):
     return np.pi**2 * np.cos(thalf*ratio*omega)*np.sin(thalf*omega*(ratio-1))/((ratio-1)*thalf*omega*(np.pi-2*ratio*thalf*omega)*(np.pi+2*ratio*thalf*omega))
 
+def stf_ricker(omega, twidth):
+    """
+    Ricker wavelet.
+    
+    This function implements the Fourier transform of
+    
+    f(t,T) = 2/(sqrt(3T).pi^(1/4)) . (1-(t/T)^2) . exp(-t^2/ (2T^2))
+    
+    which is equivalent to scipy.signal.ricker.
+    
+    :param complex omega: Frequency at which evaluation is required (rad/s)
+    :param float twidth: Width of wavelet.
+    """
+    return 2*np.sqrt(2/3)*np.exp(-0.5*(twidth*omega)**2)*(np.pi**0.25)*(twidth**2.5)*(omega**2)
+
 def clp_filter(w, w0, w1):
     """
     Cosine low-pass filter.
