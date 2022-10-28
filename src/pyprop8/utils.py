@@ -85,10 +85,18 @@ def stf_ricker(omega, twidth):
     
     f(t,T) = 2/(sqrt(3T).pi^(1/4)) . (1-(t/T)^2) . exp(-t^2/ (2T^2))
     
-    which is equivalent to scipy.signal.ricker.
+    which is equivalent to scipy.signal.ricker with that function's `a` <--> `twidth`.
     
     :param complex omega: Frequency at which evaluation is required (rad/s)
-    :param float twidth: Width of wavelet.
+    :param float twidth:  Width of wavelet. This is the 'standard deviation' parameter of the
+                          Gaussian from which the Ricker wavelet is derived. The peak frequency
+                          of the wavelet is related to twidth by:
+                          
+                          f_M = 1/ (sqrt(2) pi twidth)     Hz   
+                          or
+                          w_M = sqrt(2)/twidth             rad/s
+     :returns: Amplitude of the filter.               
+                          
     """
     return 2*np.sqrt(2/3)*np.exp(-0.5*(twidth*omega)**2)*(np.pi**0.25)*(twidth**2.5)*(omega**2)
 
