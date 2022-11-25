@@ -1,6 +1,13 @@
 import numpy as np
 from pyprop8._propagators import *
 import scipy.special as spec
+HAS_MULTIPROCESSING = False
+try:
+    from multiprocessing import Pool
+    HAS_MULTIPROCESSING = True
+except:
+    pass
+
 
 # from tqdm.autonotebook import tqdm edited by MS 2/3/21 due to warning in Anaconda JupyterLab
 import warnings
@@ -1628,6 +1635,7 @@ def compute_seismograms(
     derivatives=None,
     show_progress=True,
     squeeze_outputs=True,
+    number_of_processes=1,
     **kwargs
 ):
     """
@@ -1665,6 +1673,10 @@ def compute_seismograms(
     :param bool show_progress: Display progress bars if available.
     :param bool squeeze_outputs: If true, apply :py:func:`numpy.squeeze` to all
         output arrays to eliminate dimensions of size '1'.
+    :param int number_of_processes: The number of processes to use while
+        performing computations. If >1, the `multiprocessing` module will be
+        used, splitting up the frequency band across processs. Due to the cost
+        of creating and managing separate processes, more is not always faster.
     :param bool \**kwargs: Any additional keyword options will be passed to
         :py:func:`~pyprop8.compute_spectra`.
 
@@ -1723,20 +1735,50 @@ def compute_seismograms(
             do_derivatives = False
         else:
             do_derivatives = True
+    if number_of_processes==1:
+        spectra = compute_spectra(
+            structure,
+            source,
+            stations,
+            ww,
+            derivatives,
+            show_progress,
+            squeeze_outputs=False,
+            **kwargs
+        )
+        if derivatives is not None:
+            # Test on derivatives, not do_derivatives, as will return d_spectra as None if derivatives provided but all off
+            spectra, d_spectra = spectra
+    else:
+        if not HAS_MULTIPROCESSING:
+            raise ModuleNotFoundError("Setting `number_of_processes > 1` requires the `multiprocessing` module, which appears not to be available.")
+        # The following is done inside compute_spectra -- need to do it here as 'side effects' don't get copied
+        # back to the main process.
+        stations.generate_rphi(source.x,source.y)
+        stations.validate()
+        with Pool(number_of_processes) as pool:
+            # Give each thread an evenly-distributed set of frequencies as costs may be frequency-dependent
+            qs = [pool.apply_async(compute_spectra,(structure, source, stations, ww[ipool::number_of_processes], derivatives),
+                                    {'show_progress':False,'squeeze_outputs':False}|kwargs) for ipool in range(number_of_processes)]
+            # Accumulate results
+            for ipool,q in enumerate(qs):
+                spec_part = q.get()
+                if derivatives is not None:
+                    spec_part, d_spec_part = spec_part
+                if ipool==0:
+                    # Allocate arrays
+                    shape = list(spec_part.shape)
+                    shape[-1] = ww.shape[0]
+                    spectra = np.zeros(shape,dtype=spec_part.dtype)
+                    if derivatives is not None:
+                        shape = list(d_spec_part.shape)
+                        shape[-1] = ww.shape[0]
+                        d_spectra = np.zeros(shape,dtype=d_spec_part.dtype)
+                spectra[...,ipool::number_of_processes] = spec_part
+                if derivatives is not None:
+                    d_spectra[...,ipool::number_of_processes] = d_spec_part
+        pool.join()
 
-    spectra = compute_spectra(
-        structure,
-        source,
-        stations,
-        ww,
-        derivatives,
-        show_progress,
-        squeeze_outputs=False,
-        **kwargs
-    )
-    if derivatives is not None:
-        # Test on derivatives, not do_derivatives, as will return d_spectra as None if derivatives provided but all off
-        spectra, d_spectra = spectra
     if type(stations) is RegularlyDistributedReceivers:
         ess = "srpcw,w->srpcw"
         essd = "srpdcw,w->srpdcw"
