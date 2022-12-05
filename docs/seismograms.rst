@@ -150,7 +150,7 @@ Derivatives
 
 To obtain derivatives of spectra with respect to source parameters, we need to first create an instance of :py:class:`~pyprop8.DerivativeSwitches`. This is used to specify the derivatives that are sought, for example::
 
-   derivs = DerivativeSwitches(moment_tensor=True, force=False, x=True, y=True, depth=True)
+   derivs = DerivativeSwitches(moment_tensor=True, force=False, x=True, y=True, z=True)
 
 We can then call ``compute_spectra``, passing this object as an optional ``derivatives`` argument::
 
