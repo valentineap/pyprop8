@@ -113,8 +113,8 @@ class PointSource:
             self.F = F.copy()
         elif len(Mxyz.shape) == 2:
             self.nsources = 1
-            self.Mxyz = Mxyz.reshape(1, 3, 3)
-            self.F = F.reshape(1, 3, 1)
+            self.Mxyz = Mxyz.copy().reshape(1, 3, 3)
+            self.F = F.copy().reshape(1, 3, 1)
         else:
             raise ValueError("Moment tensor should be (Nx)3x3")
 
